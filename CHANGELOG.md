@@ -1,3 +1,10 @@
+
+## 1.1.1 - Corrección de perfil activo Supabase
+
+- Corrige la tarjeta de usuario activo para que use el perfil conectado con Supabase.
+- Evita que, al iniciar sesión con otra cuenta, siga apareciendo el usuario local anterior.
+- Agrega respaldo visual usando metadata de la sesión si el perfil tarda en sincronizar.
+
 # Changelog
 
 ## 1.0.0

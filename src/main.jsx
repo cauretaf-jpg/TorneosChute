@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const DATA_VERSION = 6;
 
 
@@ -541,6 +541,13 @@ function sortRows(rows){
 
 function getUser(state, userId){
   return state.users.find((u) => u.id === userId) || { id: userId, name: "Usuario", alias: "Sin alias", createdAt: "" };
+}
+
+function getEffectiveUser(state, session, profile){
+  if (session?.user?.id) {
+    return state.users.find((u) => u.id === session.user.id) || profileToLocalUser(profile, session.user);
+  }
+  return getUser(state, state.currentUserId);
 }
 
 function getTeam(state, teamId){
@@ -1381,11 +1388,12 @@ function App(){
     };
   }, []);
 
-  const currentUser = getUser(state, state.currentUserId);
-  const visibleTournaments = useMemo(() => getVisibleTournamentsForUser(state, state.currentUserId), [state]);
+  const currentUser = getEffectiveUser(state, cloudSession, cloudProfile);
+  const effectiveUserId = currentUser?.id || state.currentUserId;
+  const visibleTournaments = useMemo(() => getVisibleTournamentsForUser(state, effectiveUserId), [state, effectiveUserId]);
   const selectedTournament = visibleTournaments.find((t) => t.id === selectedTournamentId) || visibleTournaments[0] || null;
-  const friendIds = useMemo(() => getFriendIds(state, state.currentUserId), [state]);
-  const myRankingIds = useMemo(() => [state.currentUserId, ...friendIds], [state.currentUserId, friendIds]);
+  const friendIds = useMemo(() => getFriendIds(state, effectiveUserId), [state, effectiveUserId]);
+  const myRankingIds = useMemo(() => [effectiveUserId, ...friendIds], [effectiveUserId, friendIds]);
   const rankingUsers = useMemo(() => buildUserRanking(state, rankingScope === "friends" ? myRankingIds : null, seasonFilter), [state, rankingScope, myRankingIds, seasonFilter]);
   const globalRankingUsers = useMemo(() => buildUserRanking(state, null, "all"), [state]);
   const teamRanking = useMemo(() => buildTeamRanking(state, seasonFilter), [state, seasonFilter]);
@@ -1442,7 +1450,16 @@ function App(){
       });
       if (!options.silent) setCloudNotice("Cuenta iniciada correctamente.");
     } catch (error) {
-      setCloudNotice(error?.message || "No se pudo preparar tu cuenta.");
+      const fallbackUser = profileToLocalUser(fallbackProfile?.id ? fallbackProfile : null, session.user);
+      setCloudProfile(fallbackProfile?.id ? fallbackProfile : null);
+      commit((draft) => {
+        const index = draft.users.findIndex((u) => u.id === fallbackUser.id);
+        if (index >= 0) draft.users[index] = { ...draft.users[index], ...fallbackUser };
+        else draft.users.push(fallbackUser);
+        draft.currentUserId = fallbackUser.id;
+        return draft;
+      });
+      if (!options.silent) setCloudNotice(error?.message || "Tu sesión inició, pero no se pudo sincronizar el perfil completo.");
     } finally {
       setCloudLoading(false);
     }
@@ -1502,7 +1519,7 @@ function App(){
 
   function openTournament(tournamentId){
     const target = state.tournaments.find((t) => t.id === tournamentId);
-    if (!canViewTournament(state, target, state.currentUserId)) {
+    if (!canViewTournament(state, target, effectiveUserId)) {
       alert("Este torneo no está disponible para tu usuario. Solo puedes abrir torneos creados por ti, donde participas, donde tienes invitación o donde solicitaste acceso.");
       return;
     }
@@ -1617,10 +1634,11 @@ function CloudAccount({ available, session, profile, loading, notice, onSignIn, 
   }
 
   if (session) {
+    const displayAlias = profile?.alias || session.user?.user_metadata?.alias || safeAliasFromEmail(session.user?.email);
     return (
       <div className="cloud-account connected">
         <div>
-          <strong>{profile?.alias || "Cuenta"}</strong>
+          <strong>{displayAlias}</strong>
           <span>Sesión iniciada</span>
         </div>
         <button className="ghost small" onClick={onSignOut}>Salir</button>
