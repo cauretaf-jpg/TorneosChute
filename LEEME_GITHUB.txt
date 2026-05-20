@@ -1,0 +1,17 @@
+Para subir a GitHub:
+
+1. Deja esta carpeta como:
+   C:\Users\caure\Desktop\Paginas\PaginaChute
+
+2. Ejecuta:
+   subir-chute-github.bat
+
+El ejecutable crea/actualiza .gitignore para NO subir:
+- node_modules/
+- dist/
+- package-lock.json
+- .env / .env.local
+- cachés y logs
+
+Repositorio configurado:
+https://github.com/cauretaf-jpg/TorneosChute.git

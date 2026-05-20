@@ -1,0 +1,16 @@
+CHUTE PLATAFORMA
+
+1. Descomprime esta carpeta.
+2. Abre la carpeta en Visual Studio Code o PowerShell.
+3. Ejecuta iniciar-chute-plataforma.bat.
+
+Si es la primera vez que abres esta carpeta, el archivo instalará dependencias y luego iniciará la app.
+
+Si tienes problemas, usa PowerShell dentro de la carpeta:
+
+npm install --no-audit --no-fund
+npm run dev
+
+Para revisar que todo esté correcto:
+
+npm run verify
