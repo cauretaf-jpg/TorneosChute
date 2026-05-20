@@ -1,11 +1,38 @@
 import React, { Component, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createClient } from "@supabase/supabase-js";
 import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 const DATA_VERSION = 6;
+
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const supabaseClient = SUPABASE_URL && SUPABASE_ANON_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+function safeAliasFromEmail(email = "") {
+  return (email.split("@")[0] || "jugador")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_]/g, "")
+    .slice(0, 22) || "jugador";
+}
+
+function profileToLocalUser(profile, authUser) {
+  const name = profile?.full_name || authUser?.user_metadata?.full_name || profile?.alias || authUser?.email || "Jugador";
+  return {
+    id: profile?.id || authUser?.id,
+    name,
+    alias: profile?.alias || authUser?.user_metadata?.alias || safeAliasFromEmail(authUser?.email),
+    createdAt: (profile?.created_at || new Date().toISOString()).slice(0, 10),
+    cloud: true
+  };
+}
 
 const TEAMS = [
   {
@@ -1318,11 +1345,41 @@ function App(){
   const [rankingScope, setRankingScope] = useState("global");
   const [seasonFilter, setSeasonFilter] = useState("all");
   const [theme, setTheme] = useState(loadTheme);
+  const [cloudSession, setCloudSession] = useState(null);
+  const [cloudProfile, setCloudProfile] = useState(null);
+  const [cloudLoading, setCloudLoading] = useState(Boolean(supabaseClient));
+  const [cloudNotice, setCloudNotice] = useState("");
 
   useEffect(() => {
     try { localStorage.setItem(THEME_KEY, theme); } catch {}
     document.body.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (!supabaseClient) {
+      setCloudLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+
+    supabaseClient.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      handleCloudSession(data.session, null, { silent: true });
+    }).catch(() => {
+      if (!active) return;
+      setCloudLoading(false);
+    });
+
+    const { data: listener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+      handleCloudSession(session, null, { silent: true });
+    });
+
+    return () => {
+      active = false;
+      listener?.subscription?.unsubscribe?.();
+    };
+  }, []);
 
   const currentUser = getUser(state, state.currentUserId);
   const visibleTournaments = useMemo(() => getVisibleTournamentsForUser(state, state.currentUserId), [state]);
@@ -1333,6 +1390,106 @@ function App(){
   const globalRankingUsers = useMemo(() => buildUserRanking(state, null, "all"), [state]);
   const teamRanking = useMemo(() => buildTeamRanking(state, seasonFilter), [state, seasonFilter]);
   const userTeamRanking = useMemo(() => buildUserTeamRanking(state, seasonFilter), [state, seasonFilter]);
+
+  async function ensureCloudProfile(authUser, fallback = {}) {
+    if (!supabaseClient || !authUser?.id) return null;
+
+    const existing = await supabaseClient
+      .from("profiles")
+      .select("id, alias, full_name, avatar_url, created_at")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    if (existing.error && existing.error.code !== "PGRST116") throw existing.error;
+    if (existing.data) return existing.data;
+
+    const payload = {
+      id: authUser.id,
+      alias: (fallback.alias || authUser.user_metadata?.alias || safeAliasFromEmail(authUser.email)).trim(),
+      full_name: (fallback.full_name || fallback.name || authUser.user_metadata?.full_name || "").trim() || null,
+      avatar_url: null
+    };
+
+    const created = await supabaseClient
+      .from("profiles")
+      .insert(payload)
+      .select("id, alias, full_name, avatar_url, created_at")
+      .single();
+
+    if (created.error) throw created.error;
+    return created.data;
+  }
+
+  async function handleCloudSession(session, fallbackProfile = {}, options = {}) {
+    setCloudSession(session || null);
+    if (!session?.user) {
+      setCloudProfile(null);
+      setCloudLoading(false);
+      return;
+    }
+
+    try {
+      setCloudLoading(true);
+      const profile = await ensureCloudProfile(session.user, fallbackProfile);
+      const localUser = profileToLocalUser(profile, session.user);
+      setCloudProfile(profile);
+      commit((draft) => {
+        const index = draft.users.findIndex((u) => u.id === localUser.id);
+        if (index >= 0) draft.users[index] = { ...draft.users[index], ...localUser };
+        else draft.users.push(localUser);
+        draft.currentUserId = localUser.id;
+        return draft;
+      });
+      if (!options.silent) setCloudNotice("Cuenta iniciada correctamente.");
+    } catch (error) {
+      setCloudNotice(error?.message || "No se pudo preparar tu cuenta.");
+    } finally {
+      setCloudLoading(false);
+    }
+  }
+
+  async function signInCloud(email, password) {
+    if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
+    setCloudNotice("");
+    setCloudLoading(true);
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      setCloudLoading(false);
+      setCloudNotice(error.message || "No se pudo iniciar sesión.");
+      return;
+    }
+    await handleCloudSession(data.session, {}, { silent: false });
+  }
+
+  async function signUpCloud({ email, password, name, alias }) {
+    if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
+    setCloudNotice("");
+    setCloudLoading(true);
+    const { data, error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name, alias } }
+    });
+    if (error) {
+      setCloudLoading(false);
+      setCloudNotice(error.message || "No se pudo crear la cuenta.");
+      return;
+    }
+    if (data.session) {
+      await handleCloudSession(data.session, { name, alias }, { silent: false });
+    } else {
+      setCloudLoading(false);
+      setCloudNotice("Cuenta creada. Revisa tu correo para confirmar el acceso.");
+    }
+  }
+
+  async function signOutCloud() {
+    if (!supabaseClient) return;
+    await supabaseClient.auth.signOut();
+    setCloudSession(null);
+    setCloudProfile(null);
+    setCloudNotice("Sesión cerrada.");
+  }
 
   function commit(updater){
     setState((prev) => {
@@ -1385,7 +1542,17 @@ function App(){
             <button className="ghost theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? "Modo claro" : "Modo oscuro"}
             </button>
-            <UserSwitcher state={state} commit={commit} currentUser={currentUser} />
+            <CloudAccount
+              available={Boolean(supabaseClient)}
+              session={cloudSession}
+              profile={cloudProfile}
+              loading={cloudLoading}
+              notice={cloudNotice}
+              onSignIn={signInCloud}
+              onSignUp={signUpCloud}
+              onSignOut={signOutCloud}
+            />
+            <UserSwitcher state={state} commit={commit} currentUser={currentUser} cloudSession={cloudSession} />
           </div>
         </header>
 
@@ -1427,7 +1594,67 @@ function NavButton({ id, label, view, setView }){
   return <button className={view === id ? "active" : ""} onClick={() => setView(id)}>{label}</button>;
 }
 
-function UserSwitcher({ state, commit, currentUser }){
+function CloudAccount({ available, session, profile, loading, notice, onSignIn, onSignUp, onSignOut }){
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [alias, setAlias] = useState("");
+
+  function submit(){
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+    if (!cleanEmail || !cleanPassword) return alert("Ingresa correo y contraseña.");
+    if (mode === "register") {
+      const cleanName = name.trim();
+      const cleanAlias = alias.trim();
+      if (!cleanName || !cleanAlias) return alert("Ingresa nombre y alias.");
+      onSignUp({ email: cleanEmail, password: cleanPassword, name: cleanName, alias: cleanAlias });
+      return;
+    }
+    onSignIn(cleanEmail, cleanPassword);
+  }
+
+  if (session) {
+    return (
+      <div className="cloud-account connected">
+        <div>
+          <strong>{profile?.alias || "Cuenta"}</strong>
+          <span>Sesión iniciada</span>
+        </div>
+        <button className="ghost small" onClick={onSignOut}>Salir</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cloud-login">
+      <button className="secondary" onClick={() => setOpen(!open)}>Ingresar</button>
+      {open && (
+        <div className="floating-form auth-form">
+          <div className="segmented mini-tabs">
+            <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Ingresar</button>
+            <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Crear cuenta</button>
+          </div>
+          {!available && <p className="notice warning">La conexión de cuentas aún no está disponible en este entorno.</p>}
+          {mode === "register" && (
+            <>
+              <input placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
+              <input placeholder="Alias público" value={alias} onChange={(e) => setAlias(e.target.value)} />
+            </>
+          )}
+          <input placeholder="Correo" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input placeholder="Contraseña" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button className="primary" disabled={loading || !available} onClick={submit}>{loading ? "Procesando..." : mode === "register" ? "Crear cuenta" : "Ingresar"}</button>
+          {notice && <p className="notice">{notice}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UserSwitcher({ state, commit, currentUser, cloudSession }){
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [alias, setAlias] = useState("");
@@ -1446,6 +1673,18 @@ function UserSwitcher({ state, commit, currentUser }){
     setName("");
     setAlias("");
     setOpen(false);
+  }
+
+  if (cloudSession) {
+    return (
+      <div className="user-box locked-user">
+        <div className="avatar">{(currentUser.alias || currentUser.name).slice(0, 2).toUpperCase()}</div>
+        <div>
+          <strong>{currentUser.alias}</strong>
+          <span>Cuenta activa</span>
+        </div>
+      </div>
+    );
   }
 
   return (

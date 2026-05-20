@@ -2159,3 +2159,30 @@ tr:last-child td { border-bottom: 0; }
   max-width: 560px;
   width: 100%;
 }
+
+.cloud-login { position: relative; }
+.cloud-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.055);
+}
+.cloud-account strong, .cloud-account span { display: block; }
+.cloud-account span { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+.cloud-account.connected { border-color: rgba(85,230,165,.35); }
+.auth-form { width: min(340px, calc(100vw - 28px)); }
+.mini-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.notice { margin: 4px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.35; }
+.notice.warning { color: var(--warn); }
+.locked-user { padding-right: 14px; }
+.locked-user span { white-space: nowrap; }
+.theme-light .cloud-account,
+.theme-light .auth-form { background: rgba(255,255,255,.86); }
+@media (max-width: 760px) {
+  .cloud-login, .cloud-login > button, .cloud-account { width: 100%; }
+  .cloud-account { justify-content: space-between; }
+  .auth-form { left: 0; right: auto; }
+}

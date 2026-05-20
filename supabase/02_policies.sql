@@ -156,3 +156,10 @@ create policy activity_select_related on tournament_activity for select using (
   or exists (select 1 from tournament_invitations ti where ti.tournament_id = tournament_activity.tournament_id and ti.to_user_id = auth.uid())
   or exists (select 1 from tournament_join_requests tjr where tjr.tournament_id = tournament_activity.tournament_id and tjr.user_id = auth.uid())
 );
+
+-- Permite que un usuario autenticado cree su propio perfil al registrarse.
+drop policy if exists profiles_insert_own on profiles;
+create policy profiles_insert_own on profiles for insert with check (auth.uid() = id);
+
+drop policy if exists profiles_update_own on profiles;
+create policy profiles_update_own on profiles for update using (auth.uid() = id) with check (auth.uid() = id);
