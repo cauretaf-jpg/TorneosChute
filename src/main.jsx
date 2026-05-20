@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.1.2";
 const DATA_VERSION = 6;
 
 
@@ -1569,7 +1569,7 @@ function App(){
               onSignUp={signUpCloud}
               onSignOut={signOutCloud}
             />
-            <UserSwitcher state={state} commit={commit} currentUser={currentUser} cloudSession={cloudSession} />
+            <UserSwitcher state={state} commit={commit} currentUser={currentUser} cloudSession={cloudSession} cloudAvailable={Boolean(supabaseClient)} />
           </div>
         </header>
 
@@ -1672,7 +1672,7 @@ function CloudAccount({ available, session, profile, loading, notice, onSignIn, 
   );
 }
 
-function UserSwitcher({ state, commit, currentUser, cloudSession }){
+function UserSwitcher({ state, commit, currentUser, cloudSession, cloudAvailable }){
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [alias, setAlias] = useState("");
@@ -1694,12 +1694,25 @@ function UserSwitcher({ state, commit, currentUser, cloudSession }){
   }
 
   if (cloudSession) {
+    const alias = currentUser?.alias || currentUser?.name || "Jugador";
     return (
       <div className="user-box locked-user">
-        <div className="avatar">{(currentUser.alias || currentUser.name).slice(0, 2).toUpperCase()}</div>
+        <div className="avatar">{alias.slice(0, 2).toUpperCase()}</div>
         <div>
-          <strong>{currentUser.alias}</strong>
+          <strong>{alias}</strong>
           <span>Cuenta activa</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (cloudAvailable) {
+    return (
+      <div className="user-box locked-user inactive-user">
+        <div className="avatar muted">--</div>
+        <div>
+          <strong>Sin sesión</strong>
+          <span>Ingresa para activar tu cuenta</span>
         </div>
       </div>
     );

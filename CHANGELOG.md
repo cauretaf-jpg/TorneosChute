@@ -1,4 +1,11 @@
 
+## 1.1.2
+
+- Oculta el selector de usuarios locales cuando Supabase está disponible.
+- La cuenta activa ahora queda vinculada visualmente solo al usuario autenticado.
+- Si no hay sesión, la cabecera muestra estado sin sesión en vez de usuarios de prueba/locales.
+
+
 ## 1.1.1 - Corrección de perfil activo Supabase
 
 - Corrige la tarjeta de usuario activo para que use el perfil conectado con Supabase.

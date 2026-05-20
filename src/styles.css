@@ -2186,3 +2186,11 @@ tr:last-child td { border-bottom: 0; }
   .cloud-account { justify-content: space-between; }
   .auth-form { left: 0; right: auto; }
 }
+
+.avatar.muted {
+  background: rgba(148, 163, 184, .22);
+  color: var(--muted);
+}
+.inactive-user {
+  opacity: .92;
+}
