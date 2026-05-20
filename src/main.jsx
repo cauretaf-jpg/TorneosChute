@@ -2017,44 +2017,31 @@ function App(){
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
-      const tournamentPayload = {
-        name: payload.name,
-        description: payload.description || null,
-        format: payload.format,
-        visibility: payload.visibility,
-        status: "preparing",
-        allow_duplicate_teams: payload.teamSelectionMode === "fixed" ? Boolean(payload.allowDuplicateTeams) : true,
-        team_selection_mode: payload.teamSelectionMode || "fixed",
-        invite_code: payload.inviteCode,
-        season: payload.season,
-        creator_id: cloudSession.user.id
+      const rpcPayload = {
+        p_name: payload.name,
+        p_description: payload.description || null,
+        p_format: payload.format,
+        p_visibility: payload.visibility,
+        p_allow_duplicate_teams: payload.teamSelectionMode === "fixed" ? Boolean(payload.allowDuplicateTeams) : true,
+        p_team_selection_mode: payload.teamSelectionMode || "fixed",
+        p_invite_code: payload.inviteCode,
+        p_season: payload.season || "Temporada 2026",
+        p_creator_team_id: payload.teamSelectionMode === "fixed" ? (payload.creatorTeamId || null) : null,
+        p_invite_user_ids: payload.inviteIds || []
       };
 
-      const { data: tournament, error } = await supabaseClient
-        .from("tournaments")
-        .insert(tournamentPayload)
-        .select("id")
-        .single();
+      const { data: tournamentId, error } = await supabaseClient.rpc("create_chute_tournament", rpcPayload);
       if (error) throw error;
 
-      const { error: playerError } = await supabaseClient.from("tournament_players").insert({
-        tournament_id: tournament.id,
-        user_id: cloudSession.user.id,
-        team_id: payload.teamSelectionMode === "fixed" ? payload.creatorTeamId : null
-      });
-      if (playerError) throw playerError;
-
-      if (payload.inviteIds?.length) {
-        const inviteRows = payload.inviteIds.map((userId) => ({ tournament_id: tournament.id, from_user_id: cloudSession.user.id, to_user_id: userId, status: "pending" }));
-        const { error: inviteError } = await supabaseClient.from("tournament_invitations").insert(inviteRows);
-        if (inviteError) throw inviteError;
-      }
-
-      setCloudTournamentsNotice("Torneo creado en la nube.");
+      setCloudTournamentsNotice("Torneo creado correctamente.");
       await refreshCloudTournaments({ silent: true });
-      return tournament.id;
+      return tournamentId;
     } catch (error) {
-      setCloudTournamentsNotice(error?.message || "No se pudo crear el torneo en Supabase.");
+      const rawMessage = error?.message || "No se pudo crear el torneo en Supabase.";
+      const friendlyMessage = rawMessage.includes("Could not find the function") || rawMessage.includes("create_chute_tournament")
+        ? "Falta ejecutar el SQL de actualización 1.4.2 en Supabase."
+        : rawMessage;
+      setCloudTournamentsNotice(friendlyMessage);
       return false;
     } finally {
       setCloudTournamentsLoading(false);

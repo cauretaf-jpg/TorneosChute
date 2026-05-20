@@ -1,3 +1,12 @@
+# Changelog
+
+## 1.4.2
+
+- Corrige la creación de torneos en Supabase con una función RPC segura.
+- Reinstala políticas RLS de torneos sin recursión y sin bloqueo al insertar.
+- Evita el error: `new row violates row-level security policy for table "tournaments"`.
+- Mantiene soporte para equipo fijo y equipo libre por partido.
+
 ## 1.4.0 - Partidos y resultados en Supabase
 
 - Guarda el fixture del torneo en Supabase.
