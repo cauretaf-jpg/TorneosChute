@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const DATA_VERSION = 6;
 
 
@@ -57,7 +57,7 @@ function cloudFriendshipToLocal(row) {
   };
 }
 
-function cloudTournamentToLocal(row, participants = [], joinRequests = []) {
+function cloudTournamentToLocal(row, participants = [], joinRequests = [], matches = [], activityRows = []) {
   return {
     id: row.id,
     name: row.name,
@@ -72,11 +72,11 @@ function cloudTournamentToLocal(row, participants = [], joinRequests = []) {
     creatorId: row.creator_id,
     createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
     participants: participants.map((p) => ({ userId: p.user_id, teamId: p.team_id || null, joinedAt: (p.joined_at || new Date().toISOString()).slice(0, 10), joinedByCode: Boolean(p.joined_by_code), cloud: true })),
-    matches: [],
+    matches: matches.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
     championUserId: row.champion_user_id || null,
     championTeamId: row.champion_team_id || null,
     joinRequests: joinRequests.map((r) => ({ id: r.id, userId: r.user_id, teamId: r.requested_team_id || null, status: r.status, requestedAt: (r.requested_at || new Date().toISOString()).slice(0, 10), resolvedAt: r.resolved_at || null, resolvedBy: r.resolved_by || null, reason: r.reason || "", cloud: true })),
-    activity: [],
+    activity: activityRows.map(cloudActivityToLocal),
     cloud: true
   };
 }
@@ -90,6 +90,63 @@ function cloudInvitationToLocal(row) {
     status: row.status,
     createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
     respondedAt: row.responded_at || null,
+    cloud: true
+  };
+}
+
+function cloudGoalEventToLocal(row) {
+  return {
+    id: row.id,
+    matchId: row.match_id,
+    tournamentId: row.tournament_id,
+    teamId: row.team_id,
+    userId: row.user_id,
+    side: row.side || "home",
+    playerName: row.player_name,
+    assistName: row.assist_name || "",
+    minute: row.minute || "",
+    createdBy: row.created_by || null,
+    createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+    cloud: true
+  };
+}
+
+function cloudMatchToLocal(row, goalRows = []) {
+  const proposalActive = ["pending_confirmation", "rejected"].includes(row.result_status) && row.proposed_home_goals !== null && row.proposed_home_goals !== undefined;
+  return {
+    id: row.id,
+    tournamentId: row.tournament_id,
+    round: row.round,
+    homeUserId: row.home_user_id,
+    awayUserId: row.away_user_id,
+    homeTeamId: row.home_team_id || null,
+    awayTeamId: row.away_team_id || null,
+    homeGoals: row.home_goals,
+    awayGoals: row.away_goals,
+    resultStatus: row.result_status || null,
+    resultProposal: proposalActive ? {
+      homeGoals: row.proposed_home_goals,
+      awayGoals: row.proposed_away_goals,
+      proposedBy: row.proposed_by,
+      status: row.result_status === "rejected" ? "rejected" : "pending",
+      createdAt: (row.created_at || new Date().toISOString()).slice(0, 10)
+    } : null,
+    proposedBy: row.proposed_by || null,
+    confirmedBy: row.confirmed_by || null,
+    playedAt: row.played_at || null,
+    sortOrder: row.sort_order ?? 0,
+    goalEvents: goalRows.map(cloudGoalEventToLocal),
+    cloud: true
+  };
+}
+
+function cloudActivityToLocal(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    message: row.message,
+    userId: row.user_id || null,
+    createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
     cloud: true
   };
 }
@@ -1819,7 +1876,7 @@ function App(){
   }
 
 
-  function syncCloudTournamentsToState(tournamentRows = [], participantRows = [], invitationRows = [], joinRows = [], profileRows = [], ownerId = null) {
+  function syncCloudTournamentsToState(tournamentRows = [], participantRows = [], invitationRows = [], joinRows = [], matchRows = [], goalRows = [], activityRows = [], profileRows = [], ownerId = null) {
     const participantsByTournament = new Map();
     participantRows.forEach((row) => {
       if (!participantsByTournament.has(row.tournament_id)) participantsByTournament.set(row.tournament_id, []);
@@ -1832,7 +1889,31 @@ function App(){
       joinByTournament.get(row.tournament_id).push(row);
     });
 
-    const localTournaments = tournamentRows.map((row) => cloudTournamentToLocal(row, participantsByTournament.get(row.id) || [], joinByTournament.get(row.id) || []));
+    const goalsByMatch = new Map();
+    goalRows.forEach((row) => {
+      if (!goalsByMatch.has(row.match_id)) goalsByMatch.set(row.match_id, []);
+      goalsByMatch.get(row.match_id).push(row);
+    });
+
+    const matchesByTournament = new Map();
+    matchRows.forEach((row) => {
+      if (!matchesByTournament.has(row.tournament_id)) matchesByTournament.set(row.tournament_id, []);
+      matchesByTournament.get(row.tournament_id).push(cloudMatchToLocal(row, goalsByMatch.get(row.id) || []));
+    });
+
+    const activityByTournament = new Map();
+    activityRows.forEach((row) => {
+      if (!activityByTournament.has(row.tournament_id)) activityByTournament.set(row.tournament_id, []);
+      activityByTournament.get(row.tournament_id).push(row);
+    });
+
+    const localTournaments = tournamentRows.map((row) => cloudTournamentToLocal(
+      row,
+      participantsByTournament.get(row.id) || [],
+      joinByTournament.get(row.id) || [],
+      matchesByTournament.get(row.id) || [],
+      activityByTournament.get(row.id) || []
+    ));
     const localInvitations = invitationRows.map(cloudInvitationToLocal);
     const localUsers = profileRows.map(cloudProfileToLocalUser).filter(Boolean);
 
@@ -1870,18 +1951,37 @@ function App(){
       let participants = [];
       let invitations = [];
       let joinRows = [];
+      let matches = [];
+      let goalRows = [];
+      let activityRows = [];
       if (ids.length) {
-        const [participantRes, invitationRes, joinRes] = await Promise.all([
+        const [participantRes, invitationRes, joinRes, matchRes, activityRes] = await Promise.all([
           supabaseClient.from("tournament_players").select("id, tournament_id, user_id, team_id, joined_by_code, joined_at").in("tournament_id", ids),
           supabaseClient.from("tournament_invitations").select("id, tournament_id, from_user_id, to_user_id, status, created_at, responded_at").in("tournament_id", ids),
-          supabaseClient.from("tournament_join_requests").select("id, tournament_id, user_id, requested_team_id, status, requested_at, resolved_at, resolved_by, reason").in("tournament_id", ids)
+          supabaseClient.from("tournament_join_requests").select("id, tournament_id, user_id, requested_team_id, status, requested_at, resolved_at, resolved_by, reason").in("tournament_id", ids),
+          supabaseClient.from("matches").select("id, tournament_id, round, home_user_id, away_user_id, home_team_id, away_team_id, home_goals, away_goals, proposed_home_goals, proposed_away_goals, result_status, proposed_by, confirmed_by, played_at, sort_order, created_at").in("tournament_id", ids).order("sort_order", { ascending: true }),
+          supabaseClient.from("tournament_activity").select("id, tournament_id, type, message, user_id, created_at").in("tournament_id", ids).order("created_at", { ascending: false })
         ]);
         if (participantRes.error) throw participantRes.error;
         if (invitationRes.error) throw invitationRes.error;
         if (joinRes.error) throw joinRes.error;
+        if (matchRes.error) throw matchRes.error;
+        if (activityRes.error) throw activityRes.error;
         participants = participantRes.data || [];
         invitations = invitationRes.data || [];
         joinRows = joinRes.data || [];
+        matches = matchRes.data || [];
+        activityRows = activityRes.data || [];
+
+        if (matches.length) {
+          const { data: goalsData, error: goalsError } = await supabaseClient
+            .from("match_goal_events")
+            .select("id, match_id, tournament_id, team_id, user_id, side, player_name, assist_name, minute, created_by, created_at")
+            .in("match_id", matches.map((m) => m.id))
+            .order("created_at", { ascending: true });
+          if (goalsError) throw goalsError;
+          goalRows = goalsData || [];
+        }
       }
 
       const userIds = new Set([cloudSession.user.id]);
@@ -1889,6 +1989,9 @@ function App(){
       participants.forEach((p) => userIds.add(p.user_id));
       invitations.forEach((i) => { userIds.add(i.from_user_id); userIds.add(i.to_user_id); });
       joinRows.forEach((r) => { userIds.add(r.user_id); if (r.resolved_by) userIds.add(r.resolved_by); });
+      matches.forEach((m) => { userIds.add(m.home_user_id); userIds.add(m.away_user_id); if (m.proposed_by) userIds.add(m.proposed_by); if (m.confirmed_by) userIds.add(m.confirmed_by); });
+      goalRows.forEach((g) => { if (g.user_id) userIds.add(g.user_id); if (g.created_by) userIds.add(g.created_by); });
+      activityRows.forEach((a) => { if (a.user_id) userIds.add(a.user_id); });
 
       let profiles = [];
       if (userIds.size) {
@@ -1900,7 +2003,7 @@ function App(){
         profiles = profileRows || [];
       }
 
-      syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, profiles, cloudSession.user.id);
+      syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, matches, goalRows, activityRows, profiles, cloudSession.user.id);
       if (!options.silent) setCloudTournamentsNotice("Salas actualizadas.");
     } catch (error) {
       setCloudTournamentsNotice(error?.message || "No se pudieron actualizar las salas.");
@@ -1952,6 +2055,303 @@ function App(){
       return tournament.id;
     } catch (error) {
       setCloudTournamentsNotice(error?.message || "No se pudo crear el torneo en Supabase.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function insertCloudActivity(tournamentId, type, message, userId = cloudSession?.user?.id) {
+    if (!supabaseClient || !tournamentId) return;
+    await supabaseClient.from("tournament_activity").insert({ tournament_id: tournamentId, type, message, user_id: userId || null });
+  }
+
+  async function updateCloudTournamentStatus(tournamentId, status, extra = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const payload = { status, ...extra };
+      if (status !== "closed") {
+        payload.champion_user_id = null;
+        payload.champion_team_id = null;
+      }
+      const { error } = await supabaseClient.from("tournaments").update(payload).eq("id", tournamentId);
+      if (error) throw error;
+      await insertCloudActivity(tournamentId, "status", `El torneo cambió a estado: ${STATUS_LABELS[status] || status}.`);
+      await refreshCloudTournaments({ silent: true });
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo actualizar el estado del torneo.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function deleteCloudTournament(tournamentId) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error } = await supabaseClient.from("tournaments").delete().eq("id", tournamentId);
+      if (error) throw error;
+      setSelectedTournamentId(null);
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Torneo eliminado.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo eliminar el torneo.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function generateCloudFixture(tournament) {
+    if (!supabaseClient || !cloudSession?.user?.id || !tournament?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const localMatches = roundRobin(tournament.participants || [], { freeTeams: isFreeTeamTournament(tournament) });
+      const { error: deleteError } = await supabaseClient.from("matches").delete().eq("tournament_id", tournament.id);
+      if (deleteError) throw deleteError;
+      const matchRows = localMatches.map((match, index) => ({
+        tournament_id: tournament.id,
+        round: match.round,
+        home_user_id: match.homeUserId,
+        away_user_id: match.awayUserId,
+        home_team_id: match.homeTeamId || null,
+        away_team_id: match.awayTeamId || null,
+        sort_order: index + 1
+      }));
+      if (matchRows.length) {
+        const { error: insertError } = await supabaseClient.from("matches").insert(matchRows);
+        if (insertError) throw insertError;
+      }
+      const { error: updateError } = await supabaseClient.from("tournaments").update({ status: "active", champion_user_id: null, champion_team_id: null }).eq("id", tournament.id);
+      if (updateError) throw updateError;
+      await insertCloudActivity(tournament.id, "fixture", "Se generó el fixture del torneo.");
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Fixture guardado en la nube.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo generar el fixture en Supabase.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function submitCloudMatchResult(tournament, matchId, homeGoals, awayGoals, teamSelection = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    const match = (tournament?.matches || []).find((item) => item.id === matchId);
+    if (!match) return false;
+    const hg = Number(homeGoals);
+    const ag = Number(awayGoals);
+    const isAdmin = tournament.creatorId === cloudSession.user.id;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const basePayload = {
+        home_team_id: isFreeTeamTournament(tournament) ? (teamSelection.homeTeamId || match.homeTeamId || null) : (match.homeTeamId || null),
+        away_team_id: isFreeTeamTournament(tournament) ? (teamSelection.awayTeamId || match.awayTeamId || null) : (match.awayTeamId || null)
+      };
+      const payload = isAdmin
+        ? { ...basePayload, home_goals: hg, away_goals: ag, proposed_home_goals: null, proposed_away_goals: null, result_status: "confirmed", proposed_by: null, confirmed_by: cloudSession.user.id, played_at: today() }
+        : { ...basePayload, proposed_home_goals: hg, proposed_away_goals: ag, result_status: "pending_confirmation", proposed_by: cloudSession.user.id };
+      const { error } = await supabaseClient.from("matches").update(payload).eq("id", matchId);
+      if (error) throw error;
+      await supabaseClient.from("tournaments").update({ status: "active", champion_user_id: null, champion_team_id: null }).eq("id", tournament.id);
+      await insertCloudActivity(tournament.id, isAdmin ? "result" : "result_proposed", isAdmin ? `Resultado cargado: ${hg}-${ag}.` : `Resultado propuesto: ${hg}-${ag}.`);
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice(isAdmin ? "Resultado guardado en la nube." : "Resultado propuesto para confirmación.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo guardar el resultado.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function clearCloudMatchResult(tournament, matchId) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error: deleteGoalsError } = await supabaseClient.from("match_goal_events").delete().eq("match_id", matchId);
+      if (deleteGoalsError) throw deleteGoalsError;
+      const { error } = await supabaseClient.from("matches").update({
+        home_goals: null,
+        away_goals: null,
+        proposed_home_goals: null,
+        proposed_away_goals: null,
+        result_status: null,
+        proposed_by: null,
+        confirmed_by: null,
+        played_at: null
+      }).eq("id", matchId);
+      if (error) throw error;
+      await supabaseClient.from("tournaments").update({ champion_user_id: null, champion_team_id: null }).eq("id", tournament.id);
+      await insertCloudActivity(tournament.id, "result_cleared", "Un partido quedó nuevamente pendiente.");
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Partido marcado como pendiente.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo limpiar el partido.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function confirmCloudMatchResult(tournament, matchId) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    const match = (tournament?.matches || []).find((item) => item.id === matchId);
+    if (!match?.resultProposal) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error } = await supabaseClient.from("matches").update({
+        home_goals: Number(match.resultProposal.homeGoals),
+        away_goals: Number(match.resultProposal.awayGoals),
+        proposed_home_goals: null,
+        proposed_away_goals: null,
+        result_status: "confirmed",
+        confirmed_by: cloudSession.user.id,
+        played_at: today()
+      }).eq("id", matchId);
+      if (error) throw error;
+      await insertCloudActivity(tournament.id, "result_confirmed", "Se confirmó un resultado.");
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Resultado confirmado.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo confirmar el resultado.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function rejectCloudMatchResult(tournament, matchId) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error } = await supabaseClient.from("matches").update({ result_status: "rejected" }).eq("id", matchId);
+      if (error) throw error;
+      await insertCloudActivity(tournament.id, "result_rejected", "Se rechazó un resultado propuesto.");
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Resultado rechazado.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo rechazar el resultado.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function addCloudGoalEvent(tournament, matchId, event) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    const match = (tournament?.matches || []).find((item) => item.id === matchId);
+    if (!match) return false;
+    const isAdmin = tournament.creatorId === cloudSession.user.id;
+    const baseHome = Number(isAdmin ? (match.homeGoals ?? 0) : (match.resultProposal?.homeGoals ?? match.homeGoals ?? 0));
+    const baseAway = Number(isAdmin ? (match.awayGoals ?? 0) : (match.resultProposal?.awayGoals ?? match.awayGoals ?? 0));
+    const nextHome = event.side === "home" ? Math.max(0, baseHome + 1) : Math.max(0, baseHome);
+    const nextAway = event.side === "away" ? Math.max(0, baseAway + 1) : Math.max(0, baseAway);
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error: insertError } = await supabaseClient.from("match_goal_events").insert({
+        match_id: matchId,
+        tournament_id: tournament.id,
+        team_id: event.teamId,
+        user_id: event.userId || cloudSession.user.id,
+        side: event.side,
+        player_name: event.playerName,
+        assist_name: event.assistName || null,
+        minute: event.minute || null,
+        created_by: cloudSession.user.id
+      });
+      if (insertError) throw insertError;
+      const updatePayload = isAdmin
+        ? { home_goals: nextHome, away_goals: nextAway, result_status: "confirmed", proposed_home_goals: null, proposed_away_goals: null, proposed_by: null, confirmed_by: cloudSession.user.id, played_at: today() }
+        : { proposed_home_goals: nextHome, proposed_away_goals: nextAway, result_status: "pending_confirmation", proposed_by: cloudSession.user.id };
+      const { error: updateError } = await supabaseClient.from("matches").update(updatePayload).eq("id", matchId);
+      if (updateError) throw updateError;
+      await supabaseClient.from("tournaments").update({ status: "active", champion_user_id: null, champion_team_id: null }).eq("id", tournament.id);
+      await insertCloudActivity(tournament.id, "goal_event", `${event.playerName} fue registrado como goleador. Marcador actualizado: ${nextHome}-${nextAway}.`);
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Gol guardado en la nube.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo guardar el gol.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function removeCloudGoalEvent(tournament, matchId, eventId) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    const match = (tournament?.matches || []).find((item) => item.id === matchId);
+    const removed = (match?.goalEvents || []).find((item) => item.id === eventId);
+    if (!match || !removed) return false;
+    const isAdmin = tournament.creatorId === cloudSession.user.id;
+    const baseHome = Number(isAdmin ? (match.homeGoals ?? 0) : (match.resultProposal?.homeGoals ?? match.homeGoals ?? 0));
+    const baseAway = Number(isAdmin ? (match.awayGoals ?? 0) : (match.resultProposal?.awayGoals ?? match.awayGoals ?? 0));
+    const nextHome = removed.side === "home" ? Math.max(0, baseHome - 1) : Math.max(0, baseHome);
+    const nextAway = removed.side === "away" ? Math.max(0, baseAway - 1) : Math.max(0, baseAway);
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const { error: deleteError } = await supabaseClient.from("match_goal_events").delete().eq("id", eventId);
+      if (deleteError) throw deleteError;
+      const updatePayload = isAdmin
+        ? { home_goals: nextHome, away_goals: nextAway, result_status: "confirmed", confirmed_by: cloudSession.user.id, played_at: today() }
+        : { proposed_home_goals: nextHome, proposed_away_goals: nextAway, result_status: "pending_confirmation", proposed_by: cloudSession.user.id };
+      const { error: updateError } = await supabaseClient.from("matches").update(updatePayload).eq("id", matchId);
+      if (updateError) throw updateError;
+      await insertCloudActivity(tournament.id, "goal_removed", `Se corrigió un registro de gol. Marcador actualizado: ${nextHome}-${nextAway}.`);
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice("Gol eliminado.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo eliminar el gol.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function answerCloudTournamentInvitation(invitationId, action, teamId = null) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    const invitation = (state.invitations || []).find((item) => item.id === invitationId);
+    const tournament = state.tournaments.find((item) => item.id === invitation?.tournamentId);
+    if (!invitation || !tournament) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      if (action === "accepted") {
+        const { error: playerError } = await supabaseClient.from("tournament_players").insert({
+          tournament_id: tournament.id,
+          user_id: cloudSession.user.id,
+          team_id: isFreeTeamTournament(tournament) ? null : teamId
+        });
+        if (playerError && playerError.code !== "23505") throw playerError;
+      }
+      const { error } = await supabaseClient.from("tournament_invitations").update({ status: action, responded_at: new Date().toISOString() }).eq("id", invitationId).eq("to_user_id", cloudSession.user.id);
+      if (error) throw error;
+      await insertCloudActivity(tournament.id, action === "accepted" ? "invite_accepted" : "invite_rejected", action === "accepted" ? "Una invitación fue aceptada." : "Una invitación fue rechazada.");
+      await refreshCloudTournaments({ silent: true });
+      setCloudTournamentsNotice(action === "accepted" ? "Invitación aceptada." : "Invitación rechazada.");
+      return true;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo responder la invitación.");
       return false;
     } finally {
       setCloudTournamentsLoading(false);
@@ -2077,9 +2477,9 @@ function App(){
         </header>
 
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
-        {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} />}
+        {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
-        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading} cloudNotice={cloudFriendsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} />}
+        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
         {view === "perfil" && <Profile state={state} currentUser={currentUser} friendIds={friendIds} rankingUsers={globalRankingUsers} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
@@ -2438,7 +2838,7 @@ function ReleaseCandidatePanel({ state, currentUser, setView, visibleTournaments
   );
 }
 
-function Tournaments({ state, commit, currentUser, selectedTournament, setSelectedTournamentId, visibleTournaments, cloudMode = false, cloudLoading = false, cloudNotice = "", onCloudCreateTournament, onCloudRefreshTournaments }){
+function Tournaments({ state, commit, currentUser, selectedTournament, setSelectedTournamentId, visibleTournaments, cloudMode = false, cloudLoading = false, cloudNotice = "", onCloudCreateTournament, onCloudRefreshTournaments, onCloudGenerateFixture, onCloudSubmitResult, onCloudClearResult, onCloudConfirmResult, onCloudRejectResult, onCloudAddGoal, onCloudRemoveGoal, onCloudUpdateTournamentStatus, onCloudDeleteTournament }){
   const [openPanel, setOpenPanel] = useState(null);
 
   function togglePanel(panel){
@@ -2454,7 +2854,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
             <p>Elige el flujo que quieres abrir.</p>
           </div>
         </div>
-        {cloudMode && <div className="info-note compact"><strong>Torneos en Supabase</strong><span>Las nuevas salas se guardarán en la nube. Partidos, resultados y goles se migrarán en la siguiente etapa.</span></div>}
+        {cloudMode && <div className="info-note compact"><strong>Torneos en Supabase</strong><span>Las salas, fixture, partidos, resultados, goles y asistencias se guardan en la nube.</span></div>}
         {cloudNotice && <p className="notice">{cloudNotice}</p>}
         <div className="tournament-action-buttons action-card-grid">
           <button className={`action-card-button primary ${openPanel === "create" ? "open" : ""}`} aria-expanded={openPanel === "create"} onClick={() => togglePanel("create")}>
@@ -2511,7 +2911,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
           </div>
         </article>
         <div className="full-width-section tournament-detail-section">
-          <TournamentRoom state={state} commit={commit} tournament={selectedTournament} currentUser={currentUser} />
+          <TournamentRoom state={state} commit={commit} tournament={selectedTournament} currentUser={currentUser} cloudMode={cloudMode} cloudLoading={cloudLoading} onCloudGenerateFixture={onCloudGenerateFixture} onCloudSubmitResult={onCloudSubmitResult} onCloudClearResult={onCloudClearResult} onCloudConfirmResult={onCloudConfirmResult} onCloudRejectResult={onCloudRejectResult} onCloudAddGoal={onCloudAddGoal} onCloudRemoveGoal={onCloudRemoveGoal} onCloudUpdateTournamentStatus={onCloudUpdateTournamentStatus} onCloudDeleteTournament={onCloudDeleteTournament} />
         </div>
       </div>
     </section>
@@ -2737,7 +3137,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
   );
 }
 
-function TournamentRoom({ state, commit, tournament, currentUser }){
+function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = false, cloudLoading = false, onCloudGenerateFixture, onCloudSubmitResult, onCloudClearResult, onCloudConfirmResult, onCloudRejectResult, onCloudAddGoal, onCloudRemoveGoal, onCloudUpdateTournamentStatus, onCloudDeleteTournament }){
   const [roomTab, setRoomTab] = useState("resumen");
   const [showFinishSummary, setShowFinishSummary] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
@@ -2761,17 +3161,23 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
   const pendingResults = tournament.matches.filter((m) => m.resultStatus === "pending_confirmation" || m.resultStatus === "rejected").length;
   const nextMatch = tournament.matches.find((m) => !matchPlayed(m));
   const isCreator = tournament.creatorId === currentUser.id;
+  const isCloudTournament = Boolean(cloudMode && tournament.cloud);
   const finishBlockReason = getFinishBlockReason(tournament);
   const finishSummary = buildTournamentFinishSummary(state, tournament, standings, scorerRows, assistRows);
   const tournamentHistory = buildTournamentHistory(state, tournament);
   const goalIssueRows = tournament.matches.flatMap((match) => matchGoalIssues(match).map((issue) => ({ match, issue })));
   const safeTab = tournament.status === "preparing" && ["partidos", "tabla", "goles", "asistencias", "historia"].includes(roomTab) ? "resumen" : roomTab;
 
-  function generateFixture(){
+  async function generateFixture(){
     if (tournament.participants.length < 2) return alert("Necesitas al menos 2 participantes confirmados.");
     if (!isFreeTeamTournament(tournament)) {
       const uniqueTeams = new Set(tournament.participants.map((p) => p.teamId));
       if (!tournament.allowDuplicateTeams && uniqueTeams.size !== tournament.participants.length) return alert("Hay equipos repetidos. Ajusta los equipos antes de generar fixture.");
+    }
+    if (isCloudTournament && onCloudGenerateFixture) {
+      const ok = await onCloudGenerateFixture(tournament);
+      if (ok) setRoomTab("partidos");
+      return;
     }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
@@ -2816,12 +3222,16 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function submitResult(matchId, homeGoals, awayGoals, teamSelection = {}){
+  async function submitResult(matchId, homeGoals, awayGoals, teamSelection = {}){
     const hg = Number(homeGoals);
     const ag = Number(awayGoals);
     if (!scoreIsValid(hg, ag)) return alert("Ingresa un marcador válido entre 0 y 99, sin decimales.");
     if (isFreeTeamTournament(tournament) && (!teamSelection.homeTeamId || !teamSelection.awayTeamId)) return alert("Selecciona equipo local y visitante para este partido.");
     if (["closed", "paused"].includes(tournament.status)) return alert("No se puede modificar un torneo pausado o finalizado.");
+    if (isCloudTournament && onCloudSubmitResult) {
+      await onCloudSubmitResult(tournament, matchId, hg, ag, teamSelection);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
@@ -2858,7 +3268,12 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       description: `Se borrará el marcador, la propuesta y el detalle de goles/asistencias de ${match ? `${getUser(state, match.homeUserId).alias} vs ${getUser(state, match.awayUserId).alias}` : "este partido"}. Esta acción no se puede deshacer automáticamente.`,
       intent: "warning",
       confirmLabel: "Marcar pendiente",
-      onConfirm: () => {
+      onConfirm: async () => {
+        if (isCloudTournament && onCloudClearResult) {
+          await onCloudClearResult(tournament, matchId);
+          setConfirmAction(null);
+          return;
+        }
         commit((draft) => {
           const t = draft.tournaments.find((item) => item.id === tournament.id);
           const m = t.matches.find((item) => item.id === matchId);
@@ -2884,7 +3299,11 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function confirmResult(matchId){
+  async function confirmResult(matchId){
+    if (isCloudTournament && onCloudConfirmResult) {
+      await onCloudConfirmResult(tournament, matchId);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
@@ -2906,7 +3325,11 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function rejectResult(matchId){
+  async function rejectResult(matchId){
+    if (isCloudTournament && onCloudRejectResult) {
+      await onCloudRejectResult(tournament, matchId);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
@@ -2931,9 +3354,14 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     setShowFinishSummary(true);
   }
 
-  function confirmCloseTournament(){
+  async function confirmCloseTournament(){
     const champion = standings[0];
     if (!champion) return alert("No hay campeón calculable todavía.");
+    if (isCloudTournament && onCloudUpdateTournamentStatus) {
+      const ok = await onCloudUpdateTournamentStatus(tournament.id, "closed", { champion_user_id: champion.userId, champion_team_id: champion.teamId });
+      if (ok) setShowFinishSummary(false);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       t.status = "closed";
@@ -2945,7 +3373,11 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     setShowFinishSummary(false);
   }
 
-  function changeStatus(status){
+  async function changeStatus(status){
+    if (isCloudTournament && onCloudUpdateTournamentStatus) {
+      await onCloudUpdateTournamentStatus(tournament.id, status);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       t.status = status;
@@ -2965,7 +3397,12 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       description: "Se eliminarán invitaciones, solicitudes, partidos, goles, asistencias y estadísticas asociadas a este torneo. La acción no se puede deshacer desde la app.",
       intent: "danger",
       confirmLabel: "Eliminar torneo",
-      onConfirm: () => {
+      onConfirm: async () => {
+        if (isCloudTournament && onCloudDeleteTournament) {
+          await onCloudDeleteTournament(tournament.id);
+          setConfirmAction(null);
+          return;
+        }
         commit((draft) => {
           draft.tournaments = draft.tournaments.filter((item) => item.id !== tournament.id);
           draft.invitations = (draft.invitations || []).filter((invite) => invite.tournamentId !== tournament.id);
@@ -2976,10 +3413,18 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function addGoalEvent(matchId, event){
+  async function addGoalEvent(matchId, event){
     if (["closed", "paused"].includes(tournament.status)) return alert("No se puede modificar un torneo pausado o finalizado.");
     if (!event.playerName) return alert("Selecciona al jugador que hizo el gol.");
     if (event.assistName && event.assistName === event.playerName) return alert("El asistidor no puede ser el mismo jugador que hizo el gol.");
+    const sourceMatch = tournament.matches.find((item) => item.id === matchId);
+    if (isCloudTournament && isFreeTeamTournament(tournament) && sourceMatch && (!sourceMatch.homeTeamId || !sourceMatch.awayTeamId)) {
+      return alert("Antes de registrar goles, selecciona los equipos del partido y guarda el marcador.");
+    }
+    if (isCloudTournament && onCloudAddGoal) {
+      await onCloudAddGoal(tournament, matchId, event);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
@@ -3026,8 +3471,12 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function removeGoalEvent(matchId, eventId){
+  async function removeGoalEvent(matchId, eventId){
     if (["closed", "paused"].includes(tournament.status)) return alert("No se puede modificar un torneo pausado o finalizado.");
+    if (isCloudTournament && onCloudRemoveGoal) {
+      await onCloudRemoveGoal(tournament, matchId, eventId);
+      return;
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
@@ -3647,7 +4096,7 @@ function InviteMoreFriendsPanel({ state, commit, tournament, currentUser }){
   );
 }
 
-function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudSession, cloudLoading, cloudNotice, onCloudSearch, onCloudRequest, onCloudAnswer, onCloudRemove, onCloudRefresh }){
+function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudSession, cloudLoading, cloudNotice, onCloudSearch, onCloudRequest, onCloudAnswer, onCloudRemove, onCloudRefresh, onCloudAnswerTournamentInvitation }){
   const [query, setQuery] = useState("");
   const [cloudResults, setCloudResults] = useState([]);
   const [searched, setSearched] = useState(false);
@@ -3732,7 +4181,7 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
 
   return (
     <section className="stack">
-      <TournamentInvitationCenter state={state} commit={commit} currentUser={currentUser} />
+      <TournamentInvitationCenter state={state} commit={commit} currentUser={currentUser} cloudMode={cloudMode} cloudLoading={cloudLoading} onCloudAnswerTournamentInvitation={onCloudAnswerTournamentInvitation} />
       <div className="grid-2">
         <article className="card">
           <div className="section-heading compact">
@@ -3800,11 +4249,18 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
   );
 }
 
-function TournamentInvitationCenter({ state, commit, currentUser }){
+function TournamentInvitationCenter({ state, commit, currentUser, cloudMode = false, cloudLoading = false, onCloudAnswerTournamentInvitation }){
   const pending = state.invitations.filter((i) => i.toUserId === currentUser.id && i.status === "pending");
   const [teamByInvite, setTeamByInvite] = useState({});
 
-  function answerInvitation(invitationId, action){
+  async function answerInvitation(invitationId, action){
+    if (cloudMode && onCloudAnswerTournamentInvitation) {
+      const tournament = state.tournaments.find((t) => t.id === state.invitations.find((i) => i.id === invitationId)?.tournamentId);
+      const freeTeams = tournament ? isFreeTeamTournament(tournament) : false;
+      const teamId = freeTeams ? null : (teamByInvite[invitationId] || firstAvailableTeamForTournament(state, tournament));
+      await onCloudAnswerTournamentInvitation(invitationId, action, teamId);
+      return;
+    }
     commit((draft) => {
       const invite = draft.invitations.find((i) => i.id === invitationId);
       const tournament = draft.tournaments.find((t) => t.id === invite?.tournamentId);
@@ -3856,7 +4312,7 @@ function TournamentInvitationCenter({ state, commit, currentUser }){
                 {state.teams.map((team) => <option key={team.id} value={team.id} disabled={!t.allowDuplicateTeams && used.has(team.id)}>{team.name}</option>)}
               </select>}
               {isFreeTeamTournament(t) && <div className="info-note compact"><strong>Equipo libre</strong><span>Elegirás equipo en cada partido.</span></div>}
-              <div className="actions-row compact"><button className="primary small" onClick={() => answerInvitation(invite.id, "accepted")}>Aceptar</button><button className="ghost small" onClick={() => answerInvitation(invite.id, "rejected")}>Rechazar</button></div>
+              <div className="actions-row compact"><button className="primary small" disabled={cloudLoading} onClick={() => answerInvitation(invite.id, "accepted")}>Aceptar</button><button className="ghost small" disabled={cloudLoading} onClick={() => answerInvitation(invite.id, "rejected")}>Rechazar</button></div>
             </div>
           );
         })}

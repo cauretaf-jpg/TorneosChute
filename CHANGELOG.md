@@ -1,3 +1,13 @@
+## 1.4.0 - Partidos y resultados en Supabase
+
+- Guarda el fixture del torneo en Supabase.
+- Guarda marcadores, correcciones y resultados confirmados en Supabase.
+- Permite propuestas de resultado por participantes y confirmación/rechazo.
+- Guarda goles y asistencias reales por partido en `match_goal_events`.
+- En torneos de equipo libre, guarda el equipo usado por cada jugador en cada partido.
+- Permite finalizar/reabrir/pausar torneos actualizando el estado en Supabase.
+- Agrega SQL `10_matches_results_1_4.sql`.
+
 
 ## 1.2.3 - Corrección de amistades locales mezcladas con Supabase
 
