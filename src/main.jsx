@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.3";
 const DATA_VERSION = 6;
 
 
@@ -62,6 +62,10 @@ function cleanSearchTerm(value = "") {
     .trim()
     .replace(/[%,]/g, "")
     .slice(0, 40);
+}
+
+function isUuid(value = "") {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 }
 
 const TEAMS = [
@@ -640,9 +644,14 @@ function TeamLogo({ team, size = "" }){
   );
 }
 
-function getFriendIds(state, userId){
-  return state.friends
-    .filter((f) => f.status === "accepted" && (f.requesterId === userId || f.receiverId === userId))
+function getFriendIds(state, userId, options = {}){
+  const source = Array.isArray(state.friends) ? state.friends : [];
+  return source
+    .filter((f) => {
+      if (options.cloudOnly && !f.cloud) return false;
+      if (options.localOnly && f.cloud) return false;
+      return f.status === "accepted" && (f.requesterId === userId || f.receiverId === userId);
+    })
     .map((f) => f.requesterId === userId ? f.receiverId : f.requesterId);
 }
 
@@ -1429,7 +1438,8 @@ function App(){
   const effectiveUserId = currentUser?.id || state.currentUserId;
   const visibleTournaments = useMemo(() => getVisibleTournamentsForUser(state, effectiveUserId), [state, effectiveUserId]);
   const selectedTournament = visibleTournaments.find((t) => t.id === selectedTournamentId) || visibleTournaments[0] || null;
-  const friendIds = useMemo(() => getFriendIds(state, effectiveUserId), [state, effectiveUserId]);
+  const cloudModeActive = Boolean(supabaseClient && cloudSession?.user?.id);
+  const friendIds = useMemo(() => getFriendIds(state, effectiveUserId, { cloudOnly: cloudModeActive }), [state, effectiveUserId, cloudModeActive]);
   const myRankingIds = useMemo(() => [effectiveUserId, ...friendIds], [effectiveUserId, friendIds]);
   const rankingUsers = useMemo(() => buildUserRanking(state, rankingScope === "friends" ? myRankingIds : null, seasonFilter), [state, rankingScope, myRankingIds, seasonFilter]);
   const globalRankingUsers = useMemo(() => buildUserRanking(state, null, "all"), [state]);
@@ -1636,11 +1646,7 @@ function App(){
           return;
         }
 
-        const { error: removeOldError } = await supabaseClient
-          .from("friendships")
-          .delete()
-          .eq("id", existing.id);
-        if (removeOldError) throw removeOldError;
+        await deleteCloudFriendship(existing.id);
       }
 
       const { error } = await supabaseClient
@@ -1658,6 +1664,16 @@ function App(){
 
   async function deleteCloudFriendship(friendshipId) {
     if (!supabaseClient || !cloudSession?.user?.id || !friendshipId) return;
+
+    // Compatibilidad: versiones antiguas podían dejar amistades locales con ids tipo "f_...".
+    // Esos ids no son UUID de Supabase y no deben enviarse a la función RPC.
+    if (!isUuid(friendshipId)) {
+      commit((draft) => {
+        draft.friends = (draft.friends || []).filter((item) => item.id !== friendshipId);
+        return draft;
+      });
+      return;
+    }
 
     // Preferimos una función RPC con SECURITY DEFINER para evitar bloqueos de RLS en DELETE.
     // Si la función aún no existe, usamos DELETE directo como respaldo.
@@ -3340,7 +3356,8 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
   const [searched, setSearched] = useState(false);
   const cloudMode = Boolean(cloudAvailable && cloudSession?.user?.id);
 
-  const friendships = Array.isArray(state.friends) ? state.friends : [];
+  const allFriendships = Array.isArray(state.friends) ? state.friends : [];
+  const friendships = cloudMode ? allFriendships.filter((f) => f.cloud) : allFriendships.filter((f) => !f.cloud);
   const acceptedFriendships = friendships.filter((f) => f.status === "accepted" && (f.requesterId === currentUser.id || f.receiverId === currentUser.id));
   const friends = state.users.filter((u) => friendIds.includes(u.id));
   const incoming = friendships.filter((f) => f.status === "pending" && f.receiverId === currentUser.id);

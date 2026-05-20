@@ -1,3 +1,11 @@
+
+## 1.2.3 - Corrección de amistades locales mezcladas con Supabase
+
+- Evita que las amistades antiguas del modo local aparezcan cuando hay sesión de Supabase activa.
+- Corrige el error `invalid input syntax for type uuid` al intentar eliminar amistades con identificadores locales `f_...`.
+- El ranking y la vista de amigos ahora usan solo amistades reales de Supabase cuando el usuario está autenticado.
+- Mantiene compatibilidad con datos locales anteriores sin enviarlos a las funciones RPC de Supabase.
+
 # Changelog
 
 ## 1.2.2
