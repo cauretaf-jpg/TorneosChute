@@ -1656,18 +1656,31 @@ function App(){
     }
   }
 
+  async function deleteCloudFriendship(friendshipId) {
+    if (!supabaseClient || !cloudSession?.user?.id || !friendshipId) return;
+
+    // Preferimos una función RPC con SECURITY DEFINER para evitar bloqueos de RLS en DELETE.
+    // Si la función aún no existe, usamos DELETE directo como respaldo.
+    const rpcResult = await supabaseClient.rpc("delete_friendship", { friendship_id: friendshipId });
+    if (!rpcResult.error) return;
+
+    const missingFunction = ["42883", "PGRST202"].includes(rpcResult.error.code);
+    if (!missingFunction) throw rpcResult.error;
+
+    const { error } = await supabaseClient
+      .from("friendships")
+      .delete()
+      .eq("id", friendshipId);
+    if (error) throw error;
+  }
+
   async function answerCloudFriend(friendshipId, status) {
     if (!supabaseClient || !cloudSession?.user?.id) return;
     setCloudFriendsLoading(true);
     setCloudFriendsNotice("");
     try {
       if (status === "rejected") {
-        const { error } = await supabaseClient
-          .from("friendships")
-          .delete()
-          .eq("id", friendshipId)
-          .eq("receiver_id", cloudSession.user.id);
-        if (error) throw error;
+        await deleteCloudFriendship(friendshipId);
         setCloudFriendsNotice("Solicitud rechazada. La otra persona podrá enviarte una nueva solicitud más adelante.");
       } else {
         const { error } = await supabaseClient
@@ -1693,11 +1706,7 @@ function App(){
     setCloudFriendsLoading(true);
     setCloudFriendsNotice("");
     try {
-      const { error } = await supabaseClient
-        .from("friendships")
-        .delete()
-        .eq("id", friendshipId);
-      if (error) throw error;
+      await deleteCloudFriendship(friendshipId);
       setCloudFriendsNotice(options.notice || "Amistad eliminada. Ahora pueden enviarse una nueva solicitud.");
       await refreshCloudFriends({ silent: true });
     } catch (error) {

@@ -1,3 +1,11 @@
+# Changelog
+
+## 1.2.2
+
+- Corrige eliminación/cancelación de amistades en Supabase mediante función RPC segura.
+- Mantiene respaldo con DELETE directo si la función aún no existe.
+- Agrega `supabase/08_friendships_delete_rpc_1_2_2.sql`.
+
 ## 1.2.0 - Amigos reales con Supabase
 
 - Agrega búsqueda de usuarios registrados por alias o nombre público.
