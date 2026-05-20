@@ -1,3 +1,12 @@
+## 1.2.0 - Amigos reales con Supabase
+
+- Agrega búsqueda de usuarios registrados por alias o nombre público.
+- Permite enviar solicitudes de amistad reales guardadas en Supabase.
+- Permite aceptar o rechazar solicitudes recibidas.
+- La lista de amigos ahora se sincroniza con la tabla `friendships`.
+- El ranking entre amigos queda preparado para usar relaciones reales.
+- Mantiene los torneos en modo navegador mientras se prepara la migración de torneos a Supabase.
+
 
 ## 1.1.2
 

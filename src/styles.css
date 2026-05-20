@@ -2194,3 +2194,18 @@ tr:last-child td { border-bottom: 0; }
 .inactive-user {
   opacity: .92;
 }
+
+.section-heading.compact {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.section-heading.compact h3 { margin-bottom: 3px; }
+.section-heading.compact p { margin: 0; color: var(--muted); font-size: .9rem; }
+.search-inline { margin-bottom: 12px; }
+.compact-hero { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  .section-heading.compact { flex-direction: column; }
+}

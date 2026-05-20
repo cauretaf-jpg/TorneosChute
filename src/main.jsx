@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.1.2";
+const APP_VERSION = "1.2.0";
 const DATA_VERSION = 6;
 
 
@@ -32,6 +32,36 @@ function profileToLocalUser(profile, authUser) {
     createdAt: (profile?.created_at || new Date().toISOString()).slice(0, 10),
     cloud: true
   };
+}
+
+function cloudProfileToLocalUser(profile) {
+  if (!profile?.id) return null;
+  return {
+    id: profile.id,
+    name: profile.full_name || profile.alias || "Jugador",
+    alias: profile.alias || "Sin alias",
+    createdAt: (profile.created_at || new Date().toISOString()).slice(0, 10),
+    cloud: true
+  };
+}
+
+function cloudFriendshipToLocal(row) {
+  return {
+    id: row.id,
+    requesterId: row.requester_id,
+    receiverId: row.receiver_id,
+    status: row.status,
+    createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+    respondedAt: row.responded_at || null,
+    cloud: true
+  };
+}
+
+function cleanSearchTerm(value = "") {
+  return String(value)
+    .trim()
+    .replace(/[%,]/g, "")
+    .slice(0, 40);
 }
 
 const TEAMS = [
@@ -1356,6 +1386,8 @@ function App(){
   const [cloudProfile, setCloudProfile] = useState(null);
   const [cloudLoading, setCloudLoading] = useState(Boolean(supabaseClient));
   const [cloudNotice, setCloudNotice] = useState("");
+  const [cloudFriendsLoading, setCloudFriendsLoading] = useState(false);
+  const [cloudFriendsNotice, setCloudFriendsNotice] = useState("");
 
   useEffect(() => {
     try { localStorage.setItem(THEME_KEY, theme); } catch {}
@@ -1387,6 +1419,11 @@ function App(){
       listener?.subscription?.unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    refreshCloudFriends({ silent: true });
+  }, [cloudSession?.user?.id]);
 
   const currentUser = getEffectiveUser(state, cloudSession, cloudProfile);
   const effectiveUserId = currentUser?.id || state.currentUserId;
@@ -1465,6 +1502,165 @@ function App(){
     }
   }
 
+  function syncCloudFriendsToState(profileRows = [], friendshipRows = [], ownerId = null) {
+    const localUsers = profileRows.map(cloudProfileToLocalUser).filter(Boolean);
+    const localFriendships = friendshipRows.map(cloudFriendshipToLocal);
+    commit((draft) => {
+      localUsers.forEach((user) => {
+        const index = draft.users.findIndex((item) => item.id === user.id);
+        if (index >= 0) draft.users[index] = { ...draft.users[index], ...user };
+        else draft.users.push(user);
+      });
+
+      if (ownerId) {
+        draft.friends = (draft.friends || []).filter((item) => {
+          if (!item.cloud) return true;
+          return item.requesterId !== ownerId && item.receiverId !== ownerId;
+        });
+      }
+
+      const existingIds = new Set((draft.friends || []).map((item) => item.id));
+      localFriendships.forEach((item) => {
+        const index = draft.friends.findIndex((current) => current.id === item.id);
+        if (index >= 0) draft.friends[index] = { ...draft.friends[index], ...item };
+        else if (!existingIds.has(item.id)) draft.friends.push(item);
+      });
+      return draft;
+    });
+  }
+
+  async function refreshCloudFriends(options = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    const userId = cloudSession.user.id;
+    if (!options.silent) setCloudFriendsNotice("");
+    setCloudFriendsLoading(true);
+    try {
+      const { data: friendships, error } = await supabaseClient
+        .from("friendships")
+        .select("id, requester_id, receiver_id, status, created_at, responded_at")
+        .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const ids = new Set([userId]);
+      (friendships || []).forEach((item) => {
+        ids.add(item.requester_id);
+        ids.add(item.receiver_id);
+      });
+
+      let profiles = [];
+      if (ids.size) {
+        const { data: profileRows, error: profilesError } = await supabaseClient
+          .from("profiles")
+          .select("id, alias, full_name, avatar_url, created_at")
+          .in("id", Array.from(ids));
+        if (profilesError) throw profilesError;
+        profiles = profileRows || [];
+      }
+
+      syncCloudFriendsToState(profiles, friendships || [], userId);
+      if (!options.silent) setCloudFriendsNotice("Amigos actualizados.");
+    } catch (error) {
+      setCloudFriendsNotice(error?.message || "No se pudo actualizar la lista de amigos.");
+    } finally {
+      setCloudFriendsLoading(false);
+    }
+  }
+
+  async function searchCloudProfiles(term) {
+    if (!supabaseClient || !cloudSession?.user?.id) {
+      setCloudFriendsNotice("Inicia sesión para buscar usuarios reales.");
+      return [];
+    }
+    const clean = cleanSearchTerm(term);
+    if (clean.length < 2) {
+      setCloudFriendsNotice("Escribe al menos 2 caracteres para buscar.");
+      return [];
+    }
+
+    setCloudFriendsLoading(true);
+    setCloudFriendsNotice("");
+    try {
+      const { data, error } = await supabaseClient
+        .from("profiles")
+        .select("id, alias, full_name, avatar_url, created_at")
+        .or(`alias.ilike.%${clean}%,full_name.ilike.%${clean}%`)
+        .limit(12);
+      if (error) throw error;
+      const results = (data || [])
+        .filter((profile) => profile.id !== cloudSession.user.id)
+        .map(cloudProfileToLocalUser)
+        .filter(Boolean);
+      if (!results.length) setCloudFriendsNotice("No se encontraron usuarios con ese alias o nombre.");
+      return results;
+    } catch (error) {
+      setCloudFriendsNotice(error?.message || "No se pudo buscar usuarios.");
+      return [];
+    } finally {
+      setCloudFriendsLoading(false);
+    }
+  }
+
+  async function requestCloudFriend(receiverId) {
+    if (!supabaseClient || !cloudSession?.user?.id) {
+      setCloudFriendsNotice("Inicia sesión para enviar solicitudes.");
+      return;
+    }
+    const requesterId = cloudSession.user.id;
+    if (receiverId === requesterId) return setCloudFriendsNotice("No puedes agregarte a ti mismo.");
+    setCloudFriendsLoading(true);
+    setCloudFriendsNotice("");
+    try {
+      const { data: existing, error: existingError } = await supabaseClient
+        .from("friendships")
+        .select("id, requester_id, receiver_id, status")
+        .or(`and(requester_id.eq.${requesterId},receiver_id.eq.${receiverId}),and(requester_id.eq.${receiverId},receiver_id.eq.${requesterId})`)
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      if (existing) {
+        if (existing.status === "accepted") setCloudFriendsNotice("Ese usuario ya está en tus amigos.");
+        else if (existing.receiver_id === requesterId && existing.status === "pending") setCloudFriendsNotice("Ese usuario ya te envió una solicitud. Puedes aceptarla en solicitudes recibidas.");
+        else if (existing.requester_id === requesterId && existing.status === "pending") setCloudFriendsNotice("Ya enviaste una solicitud a ese usuario.");
+        else setCloudFriendsNotice("Ya existe una solicitud previa con ese usuario.");
+        await refreshCloudFriends({ silent: true });
+        return;
+      }
+
+      const { error } = await supabaseClient
+        .from("friendships")
+        .insert({ requester_id: requesterId, receiver_id: receiverId, status: "pending" });
+      if (error) throw error;
+      setCloudFriendsNotice("Solicitud enviada.");
+      await refreshCloudFriends({ silent: true });
+    } catch (error) {
+      setCloudFriendsNotice(error?.message || "No se pudo enviar la solicitud.");
+    } finally {
+      setCloudFriendsLoading(false);
+    }
+  }
+
+  async function answerCloudFriend(friendshipId, status) {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    setCloudFriendsLoading(true);
+    setCloudFriendsNotice("");
+    try {
+      const { error } = await supabaseClient
+        .from("friendships")
+        .update({ status, responded_at: new Date().toISOString() })
+        .eq("id", friendshipId)
+        .eq("receiver_id", cloudSession.user.id);
+      if (error) throw error;
+      setCloudFriendsNotice(status === "accepted" ? "Solicitud aceptada." : "Solicitud rechazada.");
+      await refreshCloudFriends({ silent: true });
+    } catch (error) {
+      setCloudFriendsNotice(error?.message || "No se pudo responder la solicitud.");
+    } finally {
+      setCloudFriendsLoading(false);
+    }
+  }
+
   async function signInCloud(email, password) {
     if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
     setCloudNotice("");
@@ -1502,9 +1698,17 @@ function App(){
 
   async function signOutCloud() {
     if (!supabaseClient) return;
+    const ownerId = cloudSession?.user?.id;
     await supabaseClient.auth.signOut();
     setCloudSession(null);
     setCloudProfile(null);
+    setCloudFriendsNotice("");
+    if (ownerId) {
+      commit((draft) => {
+        draft.friends = (draft.friends || []).filter((item) => !item.cloud || (item.requesterId !== ownerId && item.receiverId !== ownerId));
+        return draft;
+      });
+    }
     setCloudNotice("Sesión cerrada.");
   }
 
@@ -1576,7 +1780,7 @@ function App(){
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
-        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} />}
+        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading} cloudNotice={cloudFriendsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRefresh={refreshCloudFriends} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
         {view === "perfil" && <Profile state={state} currentUser={currentUser} friendIds={friendIds} rankingUsers={globalRankingUsers} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
@@ -3075,19 +3279,42 @@ function InviteMoreFriendsPanel({ state, commit, tournament, currentUser }){
   );
 }
 
-function Friends({ state, commit, currentUser, friendIds }){
+function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudSession, cloudLoading, cloudNotice, onCloudSearch, onCloudRequest, onCloudAnswer, onCloudRefresh }){
   const [query, setQuery] = useState("");
+  const [cloudResults, setCloudResults] = useState([]);
+  const [searched, setSearched] = useState(false);
+  const cloudMode = Boolean(cloudAvailable && cloudSession?.user?.id);
+
+  const friendships = Array.isArray(state.friends) ? state.friends : [];
   const friends = state.users.filter((u) => friendIds.includes(u.id));
-  const incoming = state.friends.filter((f) => f.status === "pending" && f.receiverId === currentUser.id);
-  const outgoing = state.friends.filter((f) => f.status === "pending" && f.requesterId === currentUser.id);
-  const candidates = state.users.filter((u) => {
+  const incoming = friendships.filter((f) => f.status === "pending" && f.receiverId === currentUser.id);
+  const outgoing = friendships.filter((f) => f.status === "pending" && f.requesterId === currentUser.id);
+
+  const localCandidates = state.users.filter((u) => {
     if (u.id === currentUser.id) return false;
     const text = `${u.name} ${u.alias}`.toLowerCase();
-    const already = state.friends.some((f) => (f.requesterId === currentUser.id && f.receiverId === u.id) || (f.requesterId === u.id && f.receiverId === currentUser.id));
+    const already = friendships.some((f) => (f.requesterId === currentUser.id && f.receiverId === u.id) || (f.requesterId === u.id && f.receiverId === currentUser.id));
     return text.includes(query.toLowerCase()) && !already;
   });
 
+  const cloudCandidates = cloudResults.filter((u) => {
+    const already = friendships.some((f) => (f.requesterId === currentUser.id && f.receiverId === u.id) || (f.requesterId === u.id && f.receiverId === currentUser.id));
+    return u.id !== currentUser.id && !already;
+  });
+
+  async function searchRealUsers(){
+    if (!onCloudSearch) return;
+    const results = await onCloudSearch(query);
+    setCloudResults(results || []);
+    setSearched(true);
+  }
+
   function requestFriend(receiverId){
+    if (cloudMode) {
+      onCloudRequest?.(receiverId);
+      setCloudResults((prev) => prev.filter((user) => user.id !== receiverId));
+      return;
+    }
     commit((draft) => {
       draft.friends.push({ id: uid("f"), requesterId: currentUser.id, receiverId, status: "pending", createdAt: today() });
       return draft;
@@ -3095,6 +3322,10 @@ function Friends({ state, commit, currentUser, friendIds }){
   }
 
   function answerFriend(friendshipId, status){
+    if (cloudMode) {
+      onCloudAnswer?.(friendshipId, status);
+      return;
+    }
     commit((draft) => {
       const item = draft.friends.find((f) => f.id === friendshipId);
       if (status === "rejected") draft.friends = draft.friends.filter((f) => f.id !== friendshipId);
@@ -3103,33 +3334,79 @@ function Friends({ state, commit, currentUser, friendIds }){
     });
   }
 
+  if (cloudAvailable && !cloudSession) {
+    return (
+      <section className="stack">
+        <article className="card hero-panel compact-hero">
+          <p className="eyebrow">Amigos reales</p>
+          <h2>Inicia sesión para agregar amigos</h2>
+          <p>El sistema de amigos ahora usa cuentas registradas. Inicia sesión para buscar usuarios por alias, enviar solicitudes y construir tu ranking entre amigos.</p>
+        </article>
+      </section>
+    );
+  }
+
   return (
     <section className="stack">
       <TournamentInvitationCenter state={state} commit={commit} currentUser={currentUser} />
       <div className="grid-2">
         <article className="card">
-          <h3>Buscar usuarios</h3>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por nombre o alias" />
+          <div className="section-heading compact">
+            <div>
+              <h3>{cloudMode ? "Buscar usuarios registrados" : "Buscar usuarios"}</h3>
+              <p>{cloudMode ? "Busca por alias o nombre público." : "Busca entre los usuarios locales de prueba."}</p>
+            </div>
+            {cloudMode && <button className="ghost small" onClick={() => onCloudRefresh?.()} disabled={cloudLoading}>{cloudLoading ? "Actualizando..." : "Actualizar"}</button>}
+          </div>
+
+          <div className="inline-form search-inline">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={cloudMode ? "Ej: FelipeChute" : "Buscar por nombre o alias"} onKeyDown={(e) => { if (cloudMode && e.key === "Enter") searchRealUsers(); }} />
+            {cloudMode && <button className="primary" onClick={searchRealUsers} disabled={cloudLoading}>{cloudLoading ? "Buscando..." : "Buscar"}</button>}
+          </div>
+
+          {cloudNotice && <p className="notice">{cloudNotice}</p>}
+
           <div className="list spaced">
-            {candidates.map((u) => <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span><button className="primary small" onClick={() => requestFriend(u.id)}>Agregar</button></div>)}
-            {!candidates.length && <p className="empty">No hay usuarios disponibles con ese filtro.</p>}
+            {(cloudMode ? cloudCandidates : localCandidates).map((u) => (
+              <div className="list-row" key={u.id}>
+                <span><strong>{u.alias}</strong><small>{u.name}</small></span>
+                <button className="primary small" onClick={() => requestFriend(u.id)} disabled={cloudLoading}>Agregar</button>
+              </div>
+            ))}
+            {cloudMode && searched && !cloudCandidates.length && <p className="empty">No hay usuarios disponibles con ese filtro o ya existe una solicitud.</p>}
+            {!cloudMode && !localCandidates.length && <p className="empty">No hay usuarios disponibles con ese filtro.</p>}
           </div>
         </article>
+
         <article className="card">
-          <h3>Mis amigos</h3>
+          <div className="section-heading compact">
+            <div>
+              <h3>Mis amigos</h3>
+              <p>{cloudMode ? "Amigos vinculados a tu cuenta." : "Amigos del modo local."}</p>
+            </div>
+          </div>
           <div className="list spaced">
             {friends.map((u) => <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span><b>Amigo</b></div>)}
             {!friends.length && <p className="empty">Aún no tienes amigos aceptados.</p>}
           </div>
+
           <h3>Solicitudes recibidas</h3>
           <div className="list spaced">
             {incoming.map((f) => {
               const u = getUser(state, f.requesterId);
-              return <div className="list-row" key={f.id}><span><strong>{u.alias}</strong><small>Quiere agregarte</small></span><div className="actions-row compact"><button className="primary small" onClick={() => answerFriend(f.id, "accepted")}>Aceptar</button><button className="ghost small" onClick={() => answerFriend(f.id, "rejected")}>Rechazar</button></div></div>;
+              return <div className="list-row" key={f.id}><span><strong>{u.alias}</strong><small>Quiere agregarte</small></span><div className="actions-row compact"><button className="primary small" disabled={cloudLoading} onClick={() => answerFriend(f.id, "accepted")}>Aceptar</button><button className="ghost small" disabled={cloudLoading} onClick={() => answerFriend(f.id, "rejected")}>Rechazar</button></div></div>;
             })}
             {!incoming.length && <p className="empty">Sin solicitudes pendientes.</p>}
           </div>
-          {outgoing.length > 0 && <p className="hint">Solicitudes enviadas: {outgoing.map((f) => getUser(state, f.receiverId).alias).join(", ")}</p>}
+
+          <h3>Solicitudes enviadas</h3>
+          <div className="list spaced">
+            {outgoing.map((f) => {
+              const u = getUser(state, f.receiverId);
+              return <div className="list-row" key={f.id}><span><strong>{u.alias}</strong><small>Pendiente de respuesta</small></span><b>Pendiente</b></div>;
+            })}
+            {!outgoing.length && <p className="empty">No tienes solicitudes enviadas pendientes.</p>}
+          </div>
         </article>
       </div>
     </section>
