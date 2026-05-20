@@ -92,3 +92,7 @@
 - Agrega botón para cancelar solicitudes de amistad enviadas.
 - Al rechazar una solicitud real, se elimina el registro para permitir nuevas solicitudes futuras.
 - Agrega política RLS de eliminación para relaciones de amistad.
+
+## 1.4.1
+- Corrige políticas RLS de Supabase que podían generar `infinite recursion detected in policy for relation "tournaments"`.
+- Agrega `supabase/11_fix_rls_recursion_1_4_1.sql` con funciones auxiliares seguras para validar acceso a torneos sin recursión.
