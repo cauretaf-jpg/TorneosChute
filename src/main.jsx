@@ -1620,12 +1620,27 @@ function App(){
       if (existingError) throw existingError;
 
       if (existing) {
-        if (existing.status === "accepted") setCloudFriendsNotice("Ese usuario ya está en tus amigos.");
-        else if (existing.receiver_id === requesterId && existing.status === "pending") setCloudFriendsNotice("Ese usuario ya te envió una solicitud. Puedes aceptarla en solicitudes recibidas.");
-        else if (existing.requester_id === requesterId && existing.status === "pending") setCloudFriendsNotice("Ya enviaste una solicitud a ese usuario.");
-        else setCloudFriendsNotice("Ya existe una solicitud previa con ese usuario.");
-        await refreshCloudFriends({ silent: true });
-        return;
+        if (existing.status === "accepted") {
+          setCloudFriendsNotice("Ese usuario ya está en tus amigos. Si quieres volver a enviar solicitud, primero elimina la amistad.");
+          await refreshCloudFriends({ silent: true });
+          return;
+        }
+        if (existing.receiver_id === requesterId && existing.status === "pending") {
+          setCloudFriendsNotice("Ese usuario ya te envió una solicitud. Puedes aceptarla en solicitudes recibidas.");
+          await refreshCloudFriends({ silent: true });
+          return;
+        }
+        if (existing.requester_id === requesterId && existing.status === "pending") {
+          setCloudFriendsNotice("Ya enviaste una solicitud a ese usuario.");
+          await refreshCloudFriends({ silent: true });
+          return;
+        }
+
+        const { error: removeOldError } = await supabaseClient
+          .from("friendships")
+          .delete()
+          .eq("id", existing.id);
+        if (removeOldError) throw removeOldError;
       }
 
       const { error } = await supabaseClient
@@ -1646,16 +1661,47 @@ function App(){
     setCloudFriendsLoading(true);
     setCloudFriendsNotice("");
     try {
-      const { error } = await supabaseClient
-        .from("friendships")
-        .update({ status, responded_at: new Date().toISOString() })
-        .eq("id", friendshipId)
-        .eq("receiver_id", cloudSession.user.id);
-      if (error) throw error;
-      setCloudFriendsNotice(status === "accepted" ? "Solicitud aceptada." : "Solicitud rechazada.");
+      if (status === "rejected") {
+        const { error } = await supabaseClient
+          .from("friendships")
+          .delete()
+          .eq("id", friendshipId)
+          .eq("receiver_id", cloudSession.user.id);
+        if (error) throw error;
+        setCloudFriendsNotice("Solicitud rechazada. La otra persona podrá enviarte una nueva solicitud más adelante.");
+      } else {
+        const { error } = await supabaseClient
+          .from("friendships")
+          .update({ status, responded_at: new Date().toISOString() })
+          .eq("id", friendshipId)
+          .eq("receiver_id", cloudSession.user.id);
+        if (error) throw error;
+        setCloudFriendsNotice("Solicitud aceptada.");
+      }
       await refreshCloudFriends({ silent: true });
     } catch (error) {
       setCloudFriendsNotice(error?.message || "No se pudo responder la solicitud.");
+    } finally {
+      setCloudFriendsLoading(false);
+    }
+  }
+
+  async function removeCloudFriend(friendshipId, options = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    const confirmed = options.skipConfirm || window.confirm(options.message || "¿Eliminar esta amistad? Después podrán enviarse una nueva solicitud si lo necesitan.");
+    if (!confirmed) return;
+    setCloudFriendsLoading(true);
+    setCloudFriendsNotice("");
+    try {
+      const { error } = await supabaseClient
+        .from("friendships")
+        .delete()
+        .eq("id", friendshipId);
+      if (error) throw error;
+      setCloudFriendsNotice(options.notice || "Amistad eliminada. Ahora pueden enviarse una nueva solicitud.");
+      await refreshCloudFriends({ silent: true });
+    } catch (error) {
+      setCloudFriendsNotice(error?.message || "No se pudo eliminar la amistad.");
     } finally {
       setCloudFriendsLoading(false);
     }
@@ -1780,7 +1826,7 @@ function App(){
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
-        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading} cloudNotice={cloudFriendsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRefresh={refreshCloudFriends} />}
+        {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading} cloudNotice={cloudFriendsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
         {view === "perfil" && <Profile state={state} currentUser={currentUser} friendIds={friendIds} rankingUsers={globalRankingUsers} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
@@ -3279,16 +3325,18 @@ function InviteMoreFriendsPanel({ state, commit, tournament, currentUser }){
   );
 }
 
-function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudSession, cloudLoading, cloudNotice, onCloudSearch, onCloudRequest, onCloudAnswer, onCloudRefresh }){
+function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudSession, cloudLoading, cloudNotice, onCloudSearch, onCloudRequest, onCloudAnswer, onCloudRemove, onCloudRefresh }){
   const [query, setQuery] = useState("");
   const [cloudResults, setCloudResults] = useState([]);
   const [searched, setSearched] = useState(false);
   const cloudMode = Boolean(cloudAvailable && cloudSession?.user?.id);
 
   const friendships = Array.isArray(state.friends) ? state.friends : [];
+  const acceptedFriendships = friendships.filter((f) => f.status === "accepted" && (f.requesterId === currentUser.id || f.receiverId === currentUser.id));
   const friends = state.users.filter((u) => friendIds.includes(u.id));
   const incoming = friendships.filter((f) => f.status === "pending" && f.receiverId === currentUser.id);
   const outgoing = friendships.filter((f) => f.status === "pending" && f.requesterId === currentUser.id);
+  const getFriendshipBetween = (userId) => acceptedFriendships.find((f) => (f.requesterId === currentUser.id && f.receiverId === userId) || (f.requesterId === userId && f.receiverId === currentUser.id));
 
   const localCandidates = state.users.filter((u) => {
     if (u.id === currentUser.id) return false;
@@ -3330,6 +3378,19 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
       const item = draft.friends.find((f) => f.id === friendshipId);
       if (status === "rejected") draft.friends = draft.friends.filter((f) => f.id !== friendshipId);
       else if (item) item.status = "accepted";
+      return draft;
+    });
+  }
+
+  function removeFriend(friendshipId){
+    if (cloudMode) {
+      onCloudRemove?.(friendshipId);
+      return;
+    }
+    const confirmed = window.confirm("¿Eliminar esta amistad? Después podrán enviarse una nueva solicitud.");
+    if (!confirmed) return;
+    commit((draft) => {
+      draft.friends = draft.friends.filter((f) => f.id !== friendshipId);
       return draft;
     });
   }
@@ -3386,7 +3447,10 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
             </div>
           </div>
           <div className="list spaced">
-            {friends.map((u) => <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span><b>Amigo</b></div>)}
+            {friends.map((u) => {
+              const friendship = getFriendshipBetween(u.id);
+              return <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span><div className="actions-row compact"><b>Amigo</b>{friendship && <button className="ghost danger small" disabled={cloudLoading} onClick={() => removeFriend(friendship.id)}>Eliminar</button>}</div></div>;
+            })}
             {!friends.length && <p className="empty">Aún no tienes amigos aceptados.</p>}
           </div>
 
@@ -3403,7 +3467,7 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
           <div className="list spaced">
             {outgoing.map((f) => {
               const u = getUser(state, f.receiverId);
-              return <div className="list-row" key={f.id}><span><strong>{u.alias}</strong><small>Pendiente de respuesta</small></span><b>Pendiente</b></div>;
+              return <div className="list-row" key={f.id}><span><strong>{u.alias}</strong><small>Pendiente de respuesta</small></span><div className="actions-row compact"><b>Pendiente</b><button className="ghost danger small" disabled={cloudLoading} onClick={() => cloudMode ? onCloudRemove?.(f.id, { message: "¿Cancelar esta solicitud?", notice: "Solicitud cancelada." }) : removeFriend(f.id)}>Cancelar</button></div></div>;
             })}
             {!outgoing.length && <p className="empty">No tienes solicitudes enviadas pendientes.</p>}
           </div>

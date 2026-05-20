@@ -43,3 +43,10 @@
 - Al iniciar sesión, se crea o sincroniza el perfil en la tabla `profiles`.
 - Mientras no se haya migrado toda la lógica a nube, los torneos siguen funcionando con almacenamiento del navegador.
 - Se agregó `supabase/05_auth_profile_policy.sql` para permitir que cada usuario cree su propio perfil.
+
+## 1.2.1
+
+- Agrega botón para eliminar amistades aceptadas.
+- Agrega botón para cancelar solicitudes de amistad enviadas.
+- Al rechazar una solicitud real, se elimina el registro para permitir nuevas solicitudes futuras.
+- Agrega política RLS de eliminación para relaciones de amistad.
