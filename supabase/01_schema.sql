@@ -52,6 +52,7 @@ create table if not exists tournaments (
   visibility text not null default 'private' check (visibility in ('private','public')),
   status text not null default 'preparing' check (status in ('preparing','active','paused','closed')),
   allow_duplicate_teams boolean default false,
+  team_selection_mode text not null default 'fixed' check (team_selection_mode in ('fixed','free_per_match')),
   invite_code text unique not null,
   season text default 'Temporada 2026',
   creator_id uuid references profiles(id) on delete set null,

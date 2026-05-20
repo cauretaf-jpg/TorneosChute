@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.3.0";
 const DATA_VERSION = 6;
 
 
@@ -50,6 +50,43 @@ function cloudFriendshipToLocal(row) {
     id: row.id,
     requesterId: row.requester_id,
     receiverId: row.receiver_id,
+    status: row.status,
+    createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+    respondedAt: row.responded_at || null,
+    cloud: true
+  };
+}
+
+function cloudTournamentToLocal(row, participants = [], joinRequests = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    format: row.format || "league",
+    visibility: row.visibility || "private",
+    status: row.status || "preparing",
+    allowDuplicateTeams: Boolean(row.allow_duplicate_teams),
+    teamSelectionMode: row.team_selection_mode || "fixed",
+    inviteCode: row.invite_code || makeInviteCode(row.name || "CHUTE"),
+    season: row.season || CURRENT_SEASON,
+    creatorId: row.creator_id,
+    createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+    participants: participants.map((p) => ({ userId: p.user_id, teamId: p.team_id || null, joinedAt: (p.joined_at || new Date().toISOString()).slice(0, 10), joinedByCode: Boolean(p.joined_by_code), cloud: true })),
+    matches: [],
+    championUserId: row.champion_user_id || null,
+    championTeamId: row.champion_team_id || null,
+    joinRequests: joinRequests.map((r) => ({ id: r.id, userId: r.user_id, teamId: r.requested_team_id || null, status: r.status, requestedAt: (r.requested_at || new Date().toISOString()).slice(0, 10), resolvedAt: r.resolved_at || null, resolvedBy: r.resolved_by || null, reason: r.reason || "", cloud: true })),
+    activity: [],
+    cloud: true
+  };
+}
+
+function cloudInvitationToLocal(row) {
+  return {
+    id: row.id,
+    tournamentId: row.tournament_id,
+    fromUserId: row.from_user_id,
+    toUserId: row.to_user_id,
     status: row.status,
     createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
     respondedAt: row.responded_at || null,
@@ -273,6 +310,11 @@ const FORMAT_LABELS = {
   knockout: "Eliminación directa"
 };
 
+const TEAM_SELECTION_LABELS = {
+  fixed: "Equipo fijo",
+  free_per_match: "Equipo libre por partido"
+};
+
 const STATUS_LABELS = {
   preparing: "En preparación",
   active: "En curso",
@@ -333,6 +375,7 @@ const seedState = () => {
     visibility: "private",
     status: "active",
     allowDuplicateTeams: false,
+    teamSelectionMode: "fixed",
     inviteCode: "APERT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -356,6 +399,7 @@ const seedState = () => {
     visibility: "private",
     status: "preparing",
     allowDuplicateTeams: false,
+    teamSelectionMode: "fixed",
     inviteCode: "INVIT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -430,6 +474,7 @@ function normalizeState(parsed){
       description: "",
       status: t.matches?.length ? "active" : "preparing",
       allowDuplicateTeams: false,
+      teamSelectionMode: t.teamSelectionMode || t.team_selection_mode || "fixed",
       inviteCode: t.inviteCode || makeInviteCode(t.name || "CHUTE"),
       season: t.season || CURRENT_SEASON,
       championUserId: null,
@@ -461,7 +506,7 @@ function saveState(next){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 }
 
-function roundRobin(participants){
+function roundRobin(participants, options = {}){
   const players = participants.map((p) => ({ ...p }));
   if (players.length % 2 !== 0) players.push({ userId: null, teamId: null, bye: true });
 
@@ -482,8 +527,8 @@ function roundRobin(participants){
           round: `Fecha ${round}`,
           homeUserId: swap ? b.userId : a.userId,
           awayUserId: swap ? a.userId : b.userId,
-          homeTeamId: swap ? b.teamId : a.teamId,
-          awayTeamId: swap ? a.teamId : b.teamId,
+          homeTeamId: options.freeTeams ? null : (swap ? b.teamId : a.teamId),
+          awayTeamId: options.freeTeams ? null : (swap ? a.teamId : b.teamId),
           homeGoals: null,
           awayGoals: null,
           resultStatus: null,
@@ -592,6 +637,35 @@ function getTeamPlayerNames(state, teamId){
   return (getTeam(state, teamId).players || []).map(([name]) => name);
 }
 
+function getTeamSelectionMode(tournament){
+  return tournament?.teamSelectionMode || tournament?.team_selection_mode || "fixed";
+}
+
+function isFreeTeamTournament(tournament){
+  return getTeamSelectionMode(tournament) === "free_per_match";
+}
+
+function teamSelectionLabel(tournament){
+  return TEAM_SELECTION_LABELS[getTeamSelectionMode(tournament)] || "Equipo fijo";
+}
+
+function getParticipantTeamId(tournament, userId){
+  return (tournament?.participants || []).find((p) => p.userId === userId)?.teamId || "";
+}
+
+function getMatchTeamId(tournament, match, side){
+  const key = side === "home" ? "homeTeamId" : "awayTeamId";
+  const userKey = side === "home" ? "homeUserId" : "awayUserId";
+  return match?.[key] || getParticipantTeamId(tournament, match?.[userKey]);
+}
+
+function participantTeamLabel(state, tournament, userId){
+  if (isFreeTeamTournament(tournament)) return "Equipo libre por partido";
+  const teamId = getParticipantTeamId(tournament, userId);
+  const team = getTeam(state, teamId);
+  return team.short || team.name;
+}
+
 function getPlayerPhoto(teamId, playerName){
   return PLAYER_PHOTOS?.[teamId]?.[playerName] || "";
 }
@@ -674,7 +748,7 @@ function tournamentStandings(state, tournament){
       userId: p.userId,
       teamId: p.teamId,
       name: user.alias || user.name,
-      teamName: team.short || team.name,
+      teamName: isFreeTeamTournament(tournament) ? "Libre" : (team.short || team.name),
       ...emptyStats(),
       performance: 0
     };
@@ -825,8 +899,16 @@ function buildUserTeamRanking(state, seasonFilter = "all"){
     t.matches.filter(matchPlayed).forEach((m) => {
       const hg = Number(m.homeGoals);
       const ag = Number(m.awayGoals);
-      const homeKey = `${m.homeUserId}_${m.homeTeamId}`;
-      const awayKey = `${m.awayUserId}_${m.awayTeamId}`;
+      const homeTeamId = m.homeTeamId || getParticipantTeamId(t, m.homeUserId);
+      const awayTeamId = m.awayTeamId || getParticipantTeamId(t, m.awayUserId);
+      const homeKey = `${m.homeUserId}_${homeTeamId}`;
+      const awayKey = `${m.awayUserId}_${awayTeamId}`;
+      [[homeKey, m.homeUserId, homeTeamId], [awayKey, m.awayUserId, awayTeamId]].forEach(([key, userId, teamId]) => {
+        if (!teamId || map[key]) return;
+        const user = getUser(state, userId);
+        const team = getTeam(state, teamId);
+        map[key] = { key, userId, teamId, name: `${user.alias || user.name} + ${team.short || team.name}`, userName: user.alias || user.name, teamName: team.short || team.name, ...emptyStats(), performance: 0 };
+      });
       if (map[homeKey]) applySingleSide(map[homeKey], hg, ag);
       if (map[awayKey]) applySingleSide(map[awayKey], ag, hg);
     });
@@ -1258,8 +1340,9 @@ function downloadMatchImage(state, tournament, match){
   drawShareBackground(ctx, "RESULTADO DEL PARTIDO", `${tournament.name} · ${match.round}`);
   const home = getUser(state, match.homeUserId);
   const away = getUser(state, match.awayUserId);
-  const homeTeam = getTeam(state, match.homeTeamId);
-  const awayTeam = getTeam(state, match.awayTeamId);
+  const freeTeams = isFreeTeamTournament(tournament);
+  const homeTeam = getTeam(state, homeTeamId || match.homeTeamId);
+  const awayTeam = getTeam(state, awayTeamId || match.awayTeamId);
   ctx.fillStyle = "#ffffff";
   ctx.font = "900 48px Arial";
   ctx.fillText(`${home.alias}`, 100, 330);
@@ -1397,6 +1480,8 @@ function App(){
   const [cloudNotice, setCloudNotice] = useState("");
   const [cloudFriendsLoading, setCloudFriendsLoading] = useState(false);
   const [cloudFriendsNotice, setCloudFriendsNotice] = useState("");
+  const [cloudTournamentsLoading, setCloudTournamentsLoading] = useState(false);
+  const [cloudTournamentsNotice, setCloudTournamentsNotice] = useState("");
 
   useEffect(() => {
     try { localStorage.setItem(THEME_KEY, theme); } catch {}
@@ -1432,6 +1517,7 @@ function App(){
   useEffect(() => {
     if (!supabaseClient || !cloudSession?.user?.id) return;
     refreshCloudFriends({ silent: true });
+    refreshCloudTournaments({ silent: true });
   }, [cloudSession?.user?.id]);
 
   const currentUser = getEffectiveUser(state, cloudSession, cloudProfile);
@@ -1732,6 +1818,146 @@ function App(){
     }
   }
 
+
+  function syncCloudTournamentsToState(tournamentRows = [], participantRows = [], invitationRows = [], joinRows = [], profileRows = [], ownerId = null) {
+    const participantsByTournament = new Map();
+    participantRows.forEach((row) => {
+      if (!participantsByTournament.has(row.tournament_id)) participantsByTournament.set(row.tournament_id, []);
+      participantsByTournament.get(row.tournament_id).push(row);
+    });
+
+    const joinByTournament = new Map();
+    joinRows.forEach((row) => {
+      if (!joinByTournament.has(row.tournament_id)) joinByTournament.set(row.tournament_id, []);
+      joinByTournament.get(row.tournament_id).push(row);
+    });
+
+    const localTournaments = tournamentRows.map((row) => cloudTournamentToLocal(row, participantsByTournament.get(row.id) || [], joinByTournament.get(row.id) || []));
+    const localInvitations = invitationRows.map(cloudInvitationToLocal);
+    const localUsers = profileRows.map(cloudProfileToLocalUser).filter(Boolean);
+
+    commit((draft) => {
+      localUsers.forEach((user) => {
+        const index = draft.users.findIndex((item) => item.id === user.id);
+        if (index >= 0) draft.users[index] = { ...draft.users[index], ...user };
+        else draft.users.push(user);
+      });
+
+      draft.tournaments = (draft.tournaments || []).filter((item) => !item.cloud);
+      draft.tournaments.unshift(...localTournaments);
+      draft.invitations = (draft.invitations || []).filter((item) => !item.cloud);
+      draft.invitations.unshift(...localInvitations);
+
+      localTournaments.forEach((t) => {
+        if (t.season && !draft.seasons.includes(t.season)) draft.seasons.unshift(t.season);
+      });
+      return draft;
+    });
+  }
+
+  async function refreshCloudTournaments(options = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    if (!options.silent) setCloudTournamentsNotice("");
+    setCloudTournamentsLoading(true);
+    try {
+      const { data: tournaments, error } = await supabaseClient
+        .from("tournaments")
+        .select("id, name, description, format, visibility, status, allow_duplicate_teams, team_selection_mode, invite_code, season, creator_id, champion_user_id, champion_team_id, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+
+      const ids = (tournaments || []).map((t) => t.id);
+      let participants = [];
+      let invitations = [];
+      let joinRows = [];
+      if (ids.length) {
+        const [participantRes, invitationRes, joinRes] = await Promise.all([
+          supabaseClient.from("tournament_players").select("id, tournament_id, user_id, team_id, joined_by_code, joined_at").in("tournament_id", ids),
+          supabaseClient.from("tournament_invitations").select("id, tournament_id, from_user_id, to_user_id, status, created_at, responded_at").in("tournament_id", ids),
+          supabaseClient.from("tournament_join_requests").select("id, tournament_id, user_id, requested_team_id, status, requested_at, resolved_at, resolved_by, reason").in("tournament_id", ids)
+        ]);
+        if (participantRes.error) throw participantRes.error;
+        if (invitationRes.error) throw invitationRes.error;
+        if (joinRes.error) throw joinRes.error;
+        participants = participantRes.data || [];
+        invitations = invitationRes.data || [];
+        joinRows = joinRes.data || [];
+      }
+
+      const userIds = new Set([cloudSession.user.id]);
+      (tournaments || []).forEach((t) => { if (t.creator_id) userIds.add(t.creator_id); if (t.champion_user_id) userIds.add(t.champion_user_id); });
+      participants.forEach((p) => userIds.add(p.user_id));
+      invitations.forEach((i) => { userIds.add(i.from_user_id); userIds.add(i.to_user_id); });
+      joinRows.forEach((r) => { userIds.add(r.user_id); if (r.resolved_by) userIds.add(r.resolved_by); });
+
+      let profiles = [];
+      if (userIds.size) {
+        const { data: profileRows, error: profilesError } = await supabaseClient
+          .from("profiles")
+          .select("id, alias, full_name, avatar_url, created_at")
+          .in("id", Array.from(userIds));
+        if (profilesError) throw profilesError;
+        profiles = profileRows || [];
+      }
+
+      syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, profiles, cloudSession.user.id);
+      if (!options.silent) setCloudTournamentsNotice("Salas actualizadas.");
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudieron actualizar las salas.");
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function createCloudTournament(payload) {
+    if (!supabaseClient || !cloudSession?.user?.id) return false;
+    setCloudTournamentsLoading(true);
+    setCloudTournamentsNotice("");
+    try {
+      const tournamentPayload = {
+        name: payload.name,
+        description: payload.description || null,
+        format: payload.format,
+        visibility: payload.visibility,
+        status: "preparing",
+        allow_duplicate_teams: payload.teamSelectionMode === "fixed" ? Boolean(payload.allowDuplicateTeams) : true,
+        team_selection_mode: payload.teamSelectionMode || "fixed",
+        invite_code: payload.inviteCode,
+        season: payload.season,
+        creator_id: cloudSession.user.id
+      };
+
+      const { data: tournament, error } = await supabaseClient
+        .from("tournaments")
+        .insert(tournamentPayload)
+        .select("id")
+        .single();
+      if (error) throw error;
+
+      const { error: playerError } = await supabaseClient.from("tournament_players").insert({
+        tournament_id: tournament.id,
+        user_id: cloudSession.user.id,
+        team_id: payload.teamSelectionMode === "fixed" ? payload.creatorTeamId : null
+      });
+      if (playerError) throw playerError;
+
+      if (payload.inviteIds?.length) {
+        const inviteRows = payload.inviteIds.map((userId) => ({ tournament_id: tournament.id, from_user_id: cloudSession.user.id, to_user_id: userId, status: "pending" }));
+        const { error: inviteError } = await supabaseClient.from("tournament_invitations").insert(inviteRows);
+        if (inviteError) throw inviteError;
+      }
+
+      setCloudTournamentsNotice("Torneo creado en la nube.");
+      await refreshCloudTournaments({ silent: true });
+      return tournament.id;
+    } catch (error) {
+      setCloudTournamentsNotice(error?.message || "No se pudo crear el torneo en Supabase.");
+      return false;
+    } finally {
+      setCloudTournamentsLoading(false);
+    }
+  }
+
   async function signInCloud(email, password) {
     if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
     setCloudNotice("");
@@ -1777,6 +2003,8 @@ function App(){
     if (ownerId) {
       commit((draft) => {
         draft.friends = (draft.friends || []).filter((item) => !item.cloud || (item.requesterId !== ownerId && item.receiverId !== ownerId));
+        draft.tournaments = (draft.tournaments || []).filter((item) => !item.cloud);
+        draft.invitations = (draft.invitations || []).filter((item) => !item.cloud);
         return draft;
       });
     }
@@ -1849,7 +2077,7 @@ function App(){
         </header>
 
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
-        {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} />}
+        {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading} cloudNotice={cloudFriendsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} />}
@@ -2210,7 +2438,7 @@ function ReleaseCandidatePanel({ state, currentUser, setView, visibleTournaments
   );
 }
 
-function Tournaments({ state, commit, currentUser, selectedTournament, setSelectedTournamentId, visibleTournaments }){
+function Tournaments({ state, commit, currentUser, selectedTournament, setSelectedTournamentId, visibleTournaments, cloudMode = false, cloudLoading = false, cloudNotice = "", onCloudCreateTournament, onCloudRefreshTournaments }){
   const [openPanel, setOpenPanel] = useState(null);
 
   function togglePanel(panel){
@@ -2226,6 +2454,8 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
             <p>Elige el flujo que quieres abrir.</p>
           </div>
         </div>
+        {cloudMode && <div className="info-note compact"><strong>Torneos en Supabase</strong><span>Las nuevas salas se guardarán en la nube. Partidos, resultados y goles se migrarán en la siguiente etapa.</span></div>}
+        {cloudNotice && <p className="notice">{cloudNotice}</p>}
         <div className="tournament-action-buttons action-card-grid">
           <button className={`action-card-button primary ${openPanel === "create" ? "open" : ""}`} aria-expanded={openPanel === "create"} onClick={() => togglePanel("create")}>
             <span>Nuevo torneo</span>
@@ -2242,7 +2472,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
         <JoinByCodePanel state={state} commit={commit} currentUser={currentUser} setSelectedTournamentId={setSelectedTournamentId} onDone={() => setOpenPanel(null)} />
       )}
       {openPanel === "create" && (
-        <CreateTournamentWizard state={state} commit={commit} currentUser={currentUser} setSelectedTournamentId={setSelectedTournamentId} onDone={() => setOpenPanel(null)} />
+        <CreateTournamentWizard state={state} commit={commit} currentUser={currentUser} setSelectedTournamentId={setSelectedTournamentId} onDone={() => setOpenPanel(null)} cloudMode={cloudMode} cloudLoading={cloudLoading} onCloudCreateTournament={onCloudCreateTournament} />
       )}
 
       <div className="tournament-vertical-layout">
@@ -2259,7 +2489,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
               const confirmed = t.participants.length;
               const pendingInvites = state.invitations.filter((i) => i.tournamentId === t.id && i.status === "pending").length;
               const access = tournamentAccessLabel(state, t, currentUser.id);
-              const meta = `${formatLabel(t.format)} · ${t.visibility === "private" ? "Privado" : "Público"} · ${t.season || state.currentSeason}`;
+              const meta = `${formatLabel(t.format)} · ${teamSelectionLabel(t)} · ${t.visibility === "private" ? "Privado" : "Público"} · ${t.season || state.currentSeason}`;
               return (
                 <button key={t.id} className={`tournament-card-button ${selectedTournament?.id === t.id ? "selected" : ""}`} onClick={() => setSelectedTournamentId(t.id)}>
                   <span className="tournament-card-main">
@@ -2292,6 +2522,7 @@ function JoinByCodePanel({ state, commit, currentUser, setSelectedTournamentId, 
   const [code, setCode] = useState("");
   const [teamId, setTeamId] = useState(state.teams[0]?.id || "");
   const tournament = state.tournaments.find((t) => t.inviteCode?.toLowerCase() === code.trim().toLowerCase());
+  const freeTeams = tournament ? isFreeTeamTournament(tournament) : false;
   const used = tournament ? usedTeamIds(tournament) : new Set();
   const alreadyIn = tournament?.participants?.some((p) => p.userId === currentUser.id);
   const existingRequest = tournament?.joinRequests?.find((r) => r.userId === currentUser.id && r.status === "pending");
@@ -2304,13 +2535,13 @@ function JoinByCodePanel({ state, commit, currentUser, setSelectedTournamentId, 
     }
     if (existingRequest) return alert("Ya tienes una solicitud pendiente para este torneo.");
     if (tournament.status !== "preparing") return alert("Solo puedes solicitar ingreso mientras el torneo está en preparación.");
-    if (!teamId) return alert("Elige un equipo.");
-    if (!tournament.allowDuplicateTeams && used.has(teamId)) return alert("Ese equipo ya fue elegido en este torneo.");
+    if (!freeTeams && !teamId) return alert("Elige un equipo.");
+    if (!freeTeams && !tournament.allowDuplicateTeams && used.has(teamId)) return alert("Ese equipo ya fue elegido en este torneo.");
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       if (!t.joinRequests) t.joinRequests = [];
-      t.joinRequests.unshift({ id: uid("jr"), userId: currentUser.id, teamId, status: "pending", requestedAt: today(), resolvedAt: null });
-      addActivity(t, "join_request", `${currentUser.alias} solicitó entrar con ${getTeam(draft, teamId).short}.`, currentUser.id);
+      t.joinRequests.unshift({ id: uid("jr"), userId: currentUser.id, teamId: freeTeams ? null : teamId, status: "pending", requestedAt: today(), resolvedAt: null });
+      addActivity(t, "join_request", freeTeams ? `${currentUser.alias} solicitó entrar al torneo.` : `${currentUser.alias} solicitó entrar con ${getTeam(draft, teamId).short}.`, currentUser.id);
       return draft;
     });
     setSelectedTournamentId(tournament.id);
@@ -2328,7 +2559,8 @@ function JoinByCodePanel({ state, commit, currentUser, setSelectedTournamentId, 
       </div>
       <div className="form-grid three">
         <label>Código<input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Ej: APERT-2026" /></label>
-        <label>Equipo solicitado<select value={teamId} onChange={(e) => setTeamId(e.target.value)}>{state.teams.map((team) => <option key={team.id} value={team.id} disabled={!!tournament && !tournament.allowDuplicateTeams && used.has(team.id)}>{team.name}</option>)}</select></label>
+        {!freeTeams && <label>Equipo solicitado<select value={teamId} onChange={(e) => setTeamId(e.target.value)}>{state.teams.map((team) => <option key={team.id} value={team.id} disabled={!!tournament && !tournament.allowDuplicateTeams && used.has(team.id)}>{team.name}</option>)}</select></label>}
+        {freeTeams && <label>Modo de equipos<input value="Equipo libre por partido" readOnly /></label>}
         <label>Estado<input value={tournament ? existingRequest ? "Solicitud pendiente" : `${tournament.name} · ${STATUS_LABELS[tournament.status]}` : "Sin coincidencia"} readOnly /></label>
       </div>
       <div className="actions-row"><button className="secondary" onClick={requestJoin}>Enviar solicitud</button>{tournament && <button className="ghost" onClick={() => setSelectedTournamentId(tournament.id)}>Abrir sala</button>}</div>
@@ -2337,7 +2569,7 @@ function JoinByCodePanel({ state, commit, currentUser, setSelectedTournamentId, 
   );
 }
 
-function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournamentId, onDone }){
+function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournamentId, onDone, cloudMode = false, cloudLoading = false, onCloudCreateTournament }){
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -2345,6 +2577,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
   const [visibility, setVisibility] = useState("private");
   const [season, setSeason] = useState(state.currentSeason || CURRENT_SEASON);
   const [allowDuplicateTeams, setAllowDuplicateTeams] = useState(false);
+  const [teamSelectionMode, setTeamSelectionMode] = useState("fixed");
   const [creatorTeamId, setCreatorTeamId] = useState(state.teams[0]?.id || "");
   const [inviteIds, setInviteIds] = useState([]);
 
@@ -2355,10 +2588,36 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
     setInviteIds((prev) => prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]);
   }
 
-  function create(){
+  async function create(){
     const clean = name.trim();
     if (!clean) return alert("Ingresa un nombre para el torneo.");
-    if (!creatorTeamId) return alert("Elige tu equipo para el torneo.");
+    if (teamSelectionMode === "fixed" && !creatorTeamId) return alert("Elige tu equipo para el torneo.");
+
+    const cloudPayload = {
+      name: clean,
+      description: description.trim(),
+      format,
+      visibility,
+      season: season.trim() || state.currentSeason || CURRENT_SEASON,
+      inviteCode: makeInviteCode(clean),
+      allowDuplicateTeams,
+      teamSelectionMode,
+      creatorTeamId,
+      inviteIds
+    };
+
+    if (cloudMode && onCloudCreateTournament) {
+      const cloudId = await onCloudCreateTournament(cloudPayload);
+      if (cloudId) {
+        setSelectedTournamentId(cloudId);
+        setName("");
+        setDescription("");
+        setInviteIds([]);
+        setStep(1);
+        onDone?.();
+      }
+      return;
+    }
 
     const tournament = {
       id: uid("t"),
@@ -2369,10 +2628,11 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       season: season.trim() || state.currentSeason || CURRENT_SEASON,
       inviteCode: makeInviteCode(clean),
       status: "preparing",
-      allowDuplicateTeams,
+      allowDuplicateTeams: teamSelectionMode === "fixed" ? allowDuplicateTeams : true,
+      teamSelectionMode,
       creatorId: currentUser.id,
       createdAt: today(),
-      participants: [{ userId: currentUser.id, teamId: creatorTeamId, joinedAt: today() }],
+      participants: [{ userId: currentUser.id, teamId: teamSelectionMode === "fixed" ? creatorTeamId : null, joinedAt: today() }],
       matches: [],
       championUserId: null,
       championTeamId: null,
@@ -2424,6 +2684,16 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
             <label>Visibilidad<select value={visibility} onChange={(e) => setVisibility(e.target.value)}><option value="private">Privado</option><option value="public">Público</option></select></label>
             <label>Temporada<input value={season} onChange={(e) => setSeason(e.target.value)} placeholder="Ej: Temporada 2026" /></label>
           </div>
+          <div className="mode-choice-grid">
+            <button type="button" className={`mode-choice ${teamSelectionMode === "fixed" ? "active" : ""}`} onClick={() => setTeamSelectionMode("fixed")}>
+              <strong>Equipo fijo</strong>
+              <span>Cada usuario elige un equipo y lo mantiene durante todo el torneo.</span>
+            </button>
+            <button type="button" className={`mode-choice ${teamSelectionMode === "free_per_match" ? "active" : ""}`} onClick={() => setTeamSelectionMode("free_per_match")}>
+              <strong>Equipo libre por partido</strong>
+              <span>Los usuarios pueden usar equipos distintos en cada fecha o partido.</span>
+            </button>
+          </div>
           <label>Descripción<textarea className="short-textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Reglas, contexto o nombre de temporada" /></label>
           <div className="actions-row"><button className="primary" onClick={() => setStep(2)}>Continuar</button></div>
         </div>
@@ -2432,8 +2702,9 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       {step === 2 && (
         <div className="wizard-panel">
           <div className="form-grid two">
-            <label>Tu equipo para este torneo<select value={creatorTeamId} onChange={(e) => setCreatorTeamId(e.target.value)}>{state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
-            <label className="check-line block"><input type="checkbox" checked={allowDuplicateTeams} onChange={(e) => setAllowDuplicateTeams(e.target.checked)} /> Permitir equipos repetidos en este torneo</label>
+            {teamSelectionMode === "fixed" && <label>Tu equipo para este torneo<select value={creatorTeamId} onChange={(e) => setCreatorTeamId(e.target.value)}>{state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}
+            {teamSelectionMode === "fixed" && <label className="check-line block"><input type="checkbox" checked={allowDuplicateTeams} onChange={(e) => setAllowDuplicateTeams(e.target.checked)} /> Permitir equipos repetidos en este torneo</label>}
+            {teamSelectionMode === "free_per_match" && <div className="info-note"><strong>Equipo libre por partido</strong><span>Los participantes no quedan asociados a un equipo al aceptar. El equipo se define en cada partido.</span></div>}
           </div>
           <h4>Invitar amigos</h4>
           <div className="participant-grid">
@@ -2453,12 +2724,13 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
               <span>Formato <strong>{formatLabel(format)}</strong></span>
               <span>Visibilidad <strong>{visibility === "private" ? "Privado" : "Público"}</strong></span>
               <span>Temporada <strong>{season || state.currentSeason}</strong></span>
-              <span>Tu equipo <strong>{getTeam(state, creatorTeamId).short}</strong></span>
+              <span>Modo equipos <strong>{formatTeamSelectionMode(teamSelectionMode)}</strong></span>
+              <span>Tu equipo <strong>{teamSelectionMode === "fixed" ? getTeam(state, creatorTeamId).short : "Libre por partido"}</strong></span>
               <span>Invitados <strong>{inviteIds.length}</strong></span>
             </div>
-            <p>El torneo quedará en preparación. Los invitados deberán aceptar y elegir equipo. Luego podrás generar el fixture desde la sala del torneo.</p>
+            <p>El torneo quedará en preparación. {teamSelectionMode === "fixed" ? "Los invitados deberán aceptar y elegir equipo." : "Los participantes elegirán equipo en cada partido."} Luego podrás generar el fixture desde la sala del torneo.</p>
           </div>
-          <div className="actions-row"><button className="ghost" onClick={() => setStep(2)}>Volver</button><button className="primary" onClick={create}>Crear sala</button></div>
+          <div className="actions-row"><button className="ghost" onClick={() => setStep(2)}>Volver</button><button className="primary" onClick={create} disabled={cloudLoading}>{cloudMode ? cloudLoading ? "Creando en la nube..." : "Crear sala en la nube" : "Crear sala"}</button></div>
         </div>
       )}
     </article>
@@ -2497,11 +2769,13 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
 
   function generateFixture(){
     if (tournament.participants.length < 2) return alert("Necesitas al menos 2 participantes confirmados.");
-    const uniqueTeams = new Set(tournament.participants.map((p) => p.teamId));
-    if (!tournament.allowDuplicateTeams && uniqueTeams.size !== tournament.participants.length) return alert("Hay equipos repetidos. Ajusta los equipos antes de generar fixture.");
+    if (!isFreeTeamTournament(tournament)) {
+      const uniqueTeams = new Set(tournament.participants.map((p) => p.teamId));
+      if (!tournament.allowDuplicateTeams && uniqueTeams.size !== tournament.participants.length) return alert("Hay equipos repetidos. Ajusta los equipos antes de generar fixture.");
+    }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
-      t.matches = roundRobin(t.participants);
+      t.matches = roundRobin(t.participants, { freeTeams: isFreeTeamTournament(t) });
       t.status = "active";
       t.championUserId = null;
       t.championTeamId = null;
@@ -2518,13 +2792,14 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       if (!req || req.status !== "pending") return draft;
       if (decision === "accepted") {
         const alreadyIn = t.participants.some((p) => p.userId === req.userId);
-        const teamUsed = !t.allowDuplicateTeams && t.participants.some((p) => p.teamId === req.teamId);
+        const freeTeams = isFreeTeamTournament(t);
+        const teamUsed = !freeTeams && !t.allowDuplicateTeams && t.participants.some((p) => p.teamId === req.teamId);
         if (!alreadyIn && !teamUsed) {
-          t.participants.push({ userId: req.userId, teamId: req.teamId, joinedAt: today(), joinedByCode: true });
+          t.participants.push({ userId: req.userId, teamId: freeTeams ? null : req.teamId, joinedAt: today(), joinedByCode: true });
           req.status = "accepted";
           req.resolvedAt = today();
           req.resolvedBy = currentUser.id;
-          addActivity(t, "join_accepted", `${getUser(draft, req.userId).alias} fue aceptado con ${getTeam(draft, req.teamId).short}.`, currentUser.id);
+          addActivity(t, "join_accepted", freeTeams ? `${getUser(draft, req.userId).alias} fue aceptado en modo equipo libre.` : `${getUser(draft, req.userId).alias} fue aceptado con ${getTeam(draft, req.teamId).short}.`, currentUser.id);
         } else {
           req.status = "rejected";
           req.resolvedAt = today();
@@ -2541,15 +2816,20 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
     });
   }
 
-  function submitResult(matchId, homeGoals, awayGoals){
+  function submitResult(matchId, homeGoals, awayGoals, teamSelection = {}){
     const hg = Number(homeGoals);
     const ag = Number(awayGoals);
     if (!scoreIsValid(hg, ag)) return alert("Ingresa un marcador válido entre 0 y 99, sin decimales.");
+    if (isFreeTeamTournament(tournament) && (!teamSelection.homeTeamId || !teamSelection.awayTeamId)) return alert("Selecciona equipo local y visitante para este partido.");
     if (["closed", "paused"].includes(tournament.status)) return alert("No se puede modificar un torneo pausado o finalizado.");
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
       const isAdmin = t.creatorId === currentUser.id;
+      if (isFreeTeamTournament(t)) {
+        m.homeTeamId = teamSelection.homeTeamId || m.homeTeamId;
+        m.awayTeamId = teamSelection.awayTeamId || m.awayTeamId;
+      }
       if (isAdmin) {
         m.homeGoals = hg;
         m.awayGoals = ag;
@@ -2704,6 +2984,10 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       const t = draft.tournaments.find((item) => item.id === tournament.id);
       const m = t.matches.find((item) => item.id === matchId);
       if (!m) return draft;
+      if (isFreeTeamTournament(t) && (!m.homeTeamId || !m.awayTeamId)) {
+        alert("Antes de registrar goles, selecciona los equipos del partido y guarda el marcador.");
+        return draft;
+      }
       const isAdmin = t.creatorId === currentUser.id;
       const isInMatch = [m.homeUserId, m.awayUserId].includes(currentUser.id);
       if (!isAdmin && !isInMatch) return draft;
@@ -2792,7 +3076,7 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       <div className="section-head tournament-room-head">
         <div className="tournament-title-block">
           <h3>{tournament.name}</h3>
-          <p className="tournament-meta-line">{formatLabel(tournament.format)} · {tournament.visibility === "private" ? "Privado" : "Público"} · {tournament.season || state.currentSeason}</p>
+          <p className="tournament-meta-line">{formatLabel(tournament.format)} · {teamSelectionLabel(tournament)} · {tournament.visibility === "private" ? "Privado" : "Público"} · {tournament.season || state.currentSeason}</p>
           {tournament.description && <p>{tournament.description}</p>}
         </div>
         <span className={`status-pill ${tournament.status}`}>{STATUS_LABELS[tournament.status]}</span>
@@ -2801,6 +3085,7 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
       {tournament.championUserId && <div className="champion-banner champion-banner-actions"><span>Campeón: <strong>{getUser(state, tournament.championUserId).alias}</strong> con <strong>{getTeam(state, tournament.championTeamId).short}</strong></span><button className="secondary small" onClick={() => downloadChampionImage(state, tournament, finishSummary)}>Imagen campeón</button></div>}
       <div className="code-banner">Código de invitación: <strong>{tournament.inviteCode}</strong><span>Con este código otros jugadores pueden solicitar ingreso.</span></div>
       <TournamentStatusGuide tournament={tournament} isCreator={isCreator} pendingJoinRequests={pendingJoinRequests.length} pendingResults={pendingResults} unplayed={unplayed} finishBlockReason={finishBlockReason} />
+      {isFreeTeamTournament(tournament) && <div className="info-note compact"><strong>Modo equipo libre</strong><span>En este torneo los equipos se eligen por partido, no al aceptar la invitación.</span></div>}
 
       <div className="stat-strip">
         <span>Confirmados <strong>{tournament.participants.length}</strong></span>
@@ -2851,7 +3136,7 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
             <div className="next-match">
               <p className="eyebrow">Próximo partido</p>
               <strong>{getUser(state, nextMatch.homeUserId).alias} vs {getUser(state, nextMatch.awayUserId).alias}</strong>
-              <span>{getTeam(state, nextMatch.homeTeamId).short} vs {getTeam(state, nextMatch.awayTeamId).short} · {nextMatch.round}</span>
+              <span>{nextMatch.homeTeamId ? getTeam(state, nextMatch.homeTeamId).short : "Equipo por elegir"} vs {nextMatch.awayTeamId ? getTeam(state, nextMatch.awayTeamId).short : "Equipo por elegir"} · {nextMatch.round}</span>
             </div>
           )}
           <div className="share-actions-grid">
@@ -2865,7 +3150,7 @@ function TournamentRoom({ state, commit, tournament, currentUser }){
               <div className="list spaced">
                 {tournament.participants.map((p) => {
                   const participantTeam = getTeam(state, p.teamId);
-                  return <div className="list-row with-logo" key={p.userId}><TeamLogo team={participantTeam} size="xs" /><span><strong>{getUser(state, p.userId).alias}</strong><small>{participantTeam.name}</small></span><b>{p.userId === tournament.creatorId ? "Creador" : "Jugador"}</b></div>;
+                  return <div className="list-row with-logo" key={p.userId}>{isFreeTeamTournament(tournament) ? <span className="team-logo xs neutral"><span>★</span></span> : <TeamLogo team={participantTeam} size="xs" />}<span><strong>{getUser(state, p.userId).alias}</strong><small>{isFreeTeamTournament(tournament) ? "Equipo libre por partido" : participantTeam.name}</small></span><b>{p.userId === tournament.creatorId ? "Creador" : "Jugador"}</b></div>;
                 })}
               </div>
             </section>
@@ -3210,11 +3495,15 @@ function TournamentActivity({ tournament, state }){
 function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onConfirm, onReject, onClearResult, onAddGoal, onRemoveGoal, onDownloadMatch }){
   const [homeGoals, setHomeGoals] = useState(match.resultProposal?.homeGoals ?? match.homeGoals ?? "");
   const [awayGoals, setAwayGoals] = useState(match.resultProposal?.awayGoals ?? match.awayGoals ?? "");
+  const [homeTeamId, setHomeTeamId] = useState(getMatchTeamId(tournament, match, "home") || "");
+  const [awayTeamId, setAwayTeamId] = useState(getMatchTeamId(tournament, match, "away") || "");
 
   useEffect(() => {
     setHomeGoals(match.resultProposal?.homeGoals ?? match.homeGoals ?? "");
     setAwayGoals(match.resultProposal?.awayGoals ?? match.awayGoals ?? "");
-  }, [match.homeGoals, match.awayGoals, match.resultProposal?.homeGoals, match.resultProposal?.awayGoals, match.resultStatus]);
+    setHomeTeamId(getMatchTeamId(tournament, match, "home") || "");
+    setAwayTeamId(getMatchTeamId(tournament, match, "away") || "");
+  }, [match.id, match.homeGoals, match.awayGoals, match.resultProposal?.homeGoals, match.resultProposal?.awayGoals, match.resultStatus, match.homeTeamId, match.awayTeamId, tournament?.id]);
 
   const isParticipant = [match.homeUserId, match.awayUserId].includes(currentUser.id);
   const isCreator = tournament.creatorId === currentUser.id;
@@ -3226,8 +3515,9 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
   const submitLabel = isCreator
     ? matchPlayed(match) ? "Corregir resultado" : "Guardar resultado"
     : matchPlayed(match) || match.resultProposal ? "Proponer corrección" : "Proponer resultado";
-  const homeTeam = getTeam(state, match.homeTeamId);
-  const awayTeam = getTeam(state, match.awayTeamId);
+  const freeTeams = isFreeTeamTournament(tournament);
+  const homeTeam = getTeam(state, homeTeamId || match.homeTeamId);
+  const awayTeam = getTeam(state, awayTeamId || match.awayTeamId);
 
   return (
     <div className={`match-card ${match.resultStatus || ""}`}>
@@ -3239,9 +3529,15 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
         <input type="number" min="0" value={awayGoals} onChange={(e) => setAwayGoals(e.target.value)} disabled={!canSubmit || tournament.status === "closed" || tournament.status === "paused"} />
         <span className="match-side away"><TeamLogo team={awayTeam} size="sm" /><span><b>{getUser(state, match.awayUserId).alias}</b><em>{awayTeam.short}</em></span></span>
       </div>
+      {freeTeams && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
+        <div className="match-team-selector-grid">
+          <label>Equipo local<select value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)}><option value="">Seleccionar equipo</option>{state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+          <label>Equipo visita<select value={awayTeamId} onChange={(e) => setAwayTeamId(e.target.value)}><option value="">Seleccionar equipo</option>{state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+        </div>
+      )}
       <div className="match-meta-grid">
-        <span>Local <strong>{homeTeam.name}</strong></span>
-        <span>Visita <strong>{awayTeam.name}</strong></span>
+        <span>Local <strong>{homeTeamId || match.homeTeamId ? homeTeam.name : "Equipo por elegir"}</strong></span>
+        <span>Visita <strong>{awayTeamId || match.awayTeamId ? awayTeam.name : "Equipo por elegir"}</strong></span>
         <span>Estado <strong>{match.resultStatus === "pending_confirmation" ? "Por confirmar" : match.resultStatus === "rejected" ? "Rechazado" : matchPlayed(match) ? "Confirmado" : "Pendiente"}</strong></span>
         <span>Goles cargados <strong>{(match.goalEvents || []).length}</strong></span>
       </div>
@@ -3262,24 +3558,25 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
         <div className="actions-row compact right">
           {(matchPlayed(match) || match.resultProposal || (match.goalEvents || []).length > 0) && <button className="ghost small" onClick={() => onClearResult(match.id)}>Marcar pendiente</button>}
           {matchPlayed(match) && <button className="ghost small" onClick={() => onDownloadMatch?.(match)}>Imagen resultado</button>}
-          <button className="secondary small" onClick={() => onSubmit(match.id, homeGoals, awayGoals)}>{submitLabel}</button>
+          <button className="secondary small" onClick={() => onSubmit(match.id, homeGoals, awayGoals, { homeTeamId, awayTeamId })}>{submitLabel}</button>
         </div>
       )}
-      <GoalEventsEditor state={state} match={match} canEdit={canEditGoals} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} currentUser={currentUser} />
+      <GoalEventsEditor state={state} tournament={tournament} match={match} canEdit={canEditGoals} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} currentUser={currentUser} />
     </div>
   );
 }
 
-function GoalEventsEditor({ state, match, canEdit, onAddGoal, onRemoveGoal, currentUser }){
+function GoalEventsEditor({ state, tournament, match, canEdit, onAddGoal, onRemoveGoal, currentUser }){
   const [side, setSide] = useState("home");
   const [playerName, setPlayerName] = useState("");
   const [assistName, setAssistName] = useState("");
   const [minute, setMinute] = useState("");
-  const teamId = side === "home" ? match.homeTeamId : match.awayTeamId;
+  const teamId = side === "home" ? getMatchTeamId(tournament, match, "home") : getMatchTeamId(tournament, match, "away");
   const players = getTeamPlayerNames(state, teamId);
   const selectedPlayer = playerName || players[0] || "";
 
   function add(){
+    if (!teamId) return alert("Primero selecciona y guarda los equipos del partido.");
     if (minute && (!Number.isInteger(Number(minute)) || Number(minute) < 1 || Number(minute) > 90)) return alert("El minuto debe ser un número entre 1 y 90. En Chute no se registran tiros libres, penales ni autogoles como eventos normales.");
     onAddGoal(match.id, {
       teamId,
@@ -3519,9 +3816,10 @@ function TournamentInvitationCenter({ state, commit, currentUser }){
         return draft;
       }
 
-      const teamId = teamByInvite[invitationId] || firstAvailableTeamForTournament(draft, tournament);
-      if (!teamId) return draft;
-      if (!tournament.allowDuplicateTeams && tournament.participants.some((p) => p.teamId === teamId)) {
+      const freeTeams = isFreeTeamTournament(tournament);
+      const teamId = freeTeams ? null : (teamByInvite[invitationId] || firstAvailableTeamForTournament(draft, tournament));
+      if (!freeTeams && !teamId) return draft;
+      if (!freeTeams && !tournament.allowDuplicateTeams && tournament.participants.some((p) => p.teamId === teamId)) {
         alert("Ese equipo ya fue elegido en este torneo.");
         return draft;
       }
@@ -3553,10 +3851,11 @@ function TournamentInvitationCenter({ state, commit, currentUser }){
             <div className="invite-card" key={invite.id}>
               <span className="status-pill preparing">Invitación</span>
               <h4>{t.name}</h4>
-              <p>Invita {getUser(state, invite.fromUserId).alias}. Elige equipo para quedar asociado durante todo el torneo.</p>
-              <select value={selected} onChange={(e) => setTeamByInvite((old) => ({ ...old, [invite.id]: e.target.value }))}>
+              <p>Invita {getUser(state, invite.fromUserId).alias}. {isFreeTeamTournament(t) ? "Este torneo usa equipo libre por partido." : "Elige equipo para quedar asociado durante todo el torneo."}</p>
+              {!isFreeTeamTournament(t) && <select value={selected} onChange={(e) => setTeamByInvite((old) => ({ ...old, [invite.id]: e.target.value }))}>
                 {state.teams.map((team) => <option key={team.id} value={team.id} disabled={!t.allowDuplicateTeams && used.has(team.id)}>{team.name}</option>)}
-              </select>
+              </select>}
+              {isFreeTeamTournament(t) && <div className="info-note compact"><strong>Equipo libre</strong><span>Elegirás equipo en cada partido.</span></div>}
               <div className="actions-row compact"><button className="primary small" onClick={() => answerInvitation(invite.id, "accepted")}>Aceptar</button><button className="ghost small" onClick={() => answerInvitation(invite.id, "rejected")}>Rechazar</button></div>
             </div>
           );
@@ -4125,6 +4424,10 @@ function statusShort(status){
 
 function formatLabel(format){
   return FORMAT_LABELS[format] || format;
+}
+
+function formatTeamSelectionMode(mode){
+  return TEAM_SELECTION_LABELS[mode] || TEAM_SELECTION_LABELS.fixed;
 }
 
 createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);

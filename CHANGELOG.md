@@ -8,6 +8,14 @@
 
 # Changelog
 
+## 1.3.0
+- Agrega creación inicial de torneos en Supabase.
+- Agrega modo de equipos: equipo fijo o equipo libre por partido.
+- Permite crear torneos donde el usuario no queda asociado a un equipo único.
+- Ajusta fixture local para soportar partidos con equipos seleccionables.
+- Agrega SQL `09_tournaments_1_3.sql` para preparar la base de datos.
+
+
 ## 1.2.2
 
 - Corrige eliminación/cancelación de amistades en Supabase mediante función RPC segura.
@@ -38,6 +46,14 @@
 - Agrega respaldo visual usando metadata de la sesión si el perfil tarda en sincronizar.
 
 # Changelog
+
+## 1.3.0
+- Agrega creación inicial de torneos en Supabase.
+- Agrega modo de equipos: equipo fijo o equipo libre por partido.
+- Permite crear torneos donde el usuario no queda asociado a un equipo único.
+- Ajusta fixture local para soportar partidos con equipos seleccionables.
+- Agrega SQL `09_tournaments_1_3.sql` para preparar la base de datos.
+
 
 ## 1.0.0
 
