@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.8.4";
+const APP_VERSION = "1.8.5";
 const DATA_VERSION = 6;
 
 
@@ -2125,6 +2125,65 @@ function buildTournamentArchiveRows(state){
     });
 }
 
+
+function getRecentResultRows(state, tournaments = state.tournaments, limit = 6){
+  return (tournaments || [])
+    .flatMap((tournament) => (tournament.matches || [])
+      .filter(matchPlayed)
+      .map((match) => {
+        const homeUser = getUser(state, match.homeUserId);
+        const awayUser = getUser(state, match.awayUserId);
+        const homeTeam = getTeam(state, getMatchTeamId(tournament, match, "home"));
+        const awayTeam = getTeam(state, getMatchTeamId(tournament, match, "away"));
+        const totalGoals = Number(match.homeGoals || 0) + Number(match.awayGoals || 0);
+        return {
+          key: `${tournament.id}_${match.id}`,
+          tournamentId: tournament.id,
+          tournament: tournament.name,
+          round: fixtureDateLabel(match),
+          detail: fixtureRoundDetail(match),
+          home: homeUser.alias,
+          away: awayUser.alias,
+          homeTeam: homeTeam.short || homeTeam.name,
+          awayTeam: awayTeam.short || awayTeam.name,
+          score: `${match.homeGoals}-${match.awayGoals}`,
+          totalGoals,
+          sortOrder: Number(match.sortOrder || 0),
+          createdAt: match.updatedAt || match.playedAt || tournament.createdAt || ""
+        };
+      }))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || b.sortOrder - a.sortOrder || b.totalGoals - a.totalGoals)
+    .slice(0, limit);
+}
+
+function getFeaturedTournaments(tournaments = [], limit = 4){
+  return [...(tournaments || [])]
+    .sort((a, b) => {
+      const aOpen = a.status === "closed" ? 0 : 1;
+      const bOpen = b.status === "closed" ? 0 : 1;
+      if (aOpen !== bOpen) return bOpen - aOpen;
+      return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+    })
+    .slice(0, limit);
+}
+
+function getTournamentProgress(tournament){
+  const total = (tournament.matches || []).length;
+  const played = (tournament.matches || []).filter(matchPlayed).length;
+  return {
+    total,
+    played,
+    pending: Math.max(total - played, 0),
+    percent: total ? Math.round((played / total) * 100) : 0
+  };
+}
+
+function getLatestTournamentChampion(state){
+  const rows = buildTournamentArchiveRows(state);
+  return rows[0] || null;
+}
+
+
 function buildDataDiagnostics(state){
   const issues = [];
   const aliasMap = new Map();
@@ -3529,117 +3588,145 @@ function UserSwitcher({ state, commit, currentUser, cloudSession, cloudAvailable
 
 function Home({ state, currentUser, rankingUsers, setView, selectedTournament, openTournament, visibleTournaments }){
   const played = state.tournaments.flatMap((t) => t.matches).filter(matchPlayed).length;
-  const pending = state.tournaments.flatMap((t) => t.matches).filter((m) => !matchPlayed(m)).length;
+  const totalGoals = state.tournaments.flatMap((t) => t.matches).filter(matchPlayed).reduce((sum, match) => sum + Number(match.homeGoals || 0) + Number(match.awayGoals || 0), 0);
   const leader = rankingUsers[0];
-  const myRow = rankingUsers.find((r) => r.userId === currentUser.id);
+  const latestChampion = getLatestTournamentChampion(state);
+  const topTeam = buildTeamRanking(state)[0];
+  const topPlayers = buildPlayerContributionRanking(state).slice(0, 4);
+  const topTeams = buildTeamRanking(state).slice(0, 3);
+  const featuredTournaments = getFeaturedTournaments(visibleTournaments, 4);
+  const recentResults = getRecentResultRows(state, visibleTournaments, 5);
+  const activeTournaments = visibleTournaments.filter((t) => t.status !== "closed");
+  const closedTournaments = buildTournamentArchiveRows(state).filter(({ tournament }) => visibleTournaments.some((visible) => visible.id === tournament.id));
   const myInvitations = state.invitations.filter((i) => i.toUserId === currentUser.id && i.status === "pending");
-  const activeTournaments = visibleTournaments.filter((t) => t.status !== "closed").length;
   const nextForMe = getNextMatchForUser(state, currentUser.id);
-  const myAchievements = getAchievementsForUser(state, currentUser.id);
-  const unlockedAchievements = myAchievements.filter((a) => a.unlocked);
-  const currentSeasonLeader = buildUserRanking(state, null, state.currentSeason)[0];
 
   return (
-    <section className="stack">
-      <div className="hero-panel">
+    <section className="stack product-home">
+      <div className="hero-panel product-hero">
         <div>
-          <p className="eyebrow">Plataforma competitiva</p>
-          <h2>Organiza torneos, resultados y estadísticas con una experiencia clara y competitiva.</h2>
-          <p>Crea torneos, invita jugadores, registra partidos y conserva el historial competitivo de cada campeonato.</p>
+          <p className="eyebrow">Chute Plataforma</p>
+          <h2>La casa competitiva para tus torneos de Chute.</h2>
+          <p>Gestiona campeonatos, fechas, resultados, perfiles, rankings y palmarés en una experiencia visual pensada como producto final.</p>
           <div className="actions-row">
             <button className="primary" onClick={() => setView("torneos")}>Crear torneo</button>
-            <button className="secondary" onClick={() => setView("torneos")}>Unirse a torneo</button>
+            <button className="secondary" onClick={() => setView("mundo")}>Explorar Mundo Chute</button>
             <button className="ghost" onClick={() => setView("ranking")}>Ver rankings</button>
           </div>
         </div>
-        <div className="hero-card">
-          <span>Actual líder global</span>
-          <strong>{leader?.name || "Sin datos"}</strong>
-          <p>{leader ? `${leader.score} pts ranking · ${leader.performance}% rendimiento` : "Aún no hay partidos registrados."}</p>
-          <small>Líder {state.currentSeason}: {currentSeasonLeader?.name || "Sin datos"}</small>
-        </div>
-      </div>
-
-      <div className="metric-grid">
-        <Metric title="Usuarios" value={state.users.length} />
-        <Metric title="Mis torneos activos" value={activeTournaments} />
-        <Metric title="Partidos ranking" value={played} />
-        <Metric title="Mis invitaciones" value={myInvitations.length} />
-        <Metric title="Logros" value={`${unlockedAchievements.length}/${ACHIEVEMENTS.length}`} />
-      </div>
-
-      <article className="card privacy-card">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">Tus salas</p>
-            <h3>Tu panel muestra solo torneos donde tienes participación</h3>
+        <div className="product-hero-board">
+          <div className="scoreboard-main">
+            <span>Campeón reciente</span>
+            <strong>{latestChampion?.profile?.championUser?.alias || latestChampion?.profile?.history?.champion || "Sin campeón"}</strong>
+            <small>{latestChampion ? `${latestChampion.tournament.name} · ${latestChampion.profile.championTeam?.short || latestChampion.profile.history.championTeam}` : "Finaliza un torneo para inaugurar el palmarés."}</small>
           </div>
-          <span className="counter-badge">{visibleTournaments.length}</span>
+          <div className="scoreboard-row">
+            <span>Líder</span><b>{leader?.name || "Sin datos"}</b><em>{leader ? `${leader.score} pts` : "—"}</em>
+          </div>
+          <div className="scoreboard-row">
+            <span>Equipo destacado</span><b>{topTeam?.name || "Sin datos"}</b><em>{topTeam ? `${topTeam.performance}%` : "—"}</em>
+          </div>
         </div>
-        <p>Verás tus torneos creados, salas donde participas, invitaciones y solicitudes. Los rankings pueden considerar resultados generales sin exponer salas privadas ajenas.</p>
-      </article>
+      </div>
 
-      <ReleaseCandidatePanel
-        state={state}
-        currentUser={currentUser}
-        setView={setView}
-        visibleTournaments={visibleTournaments}
-        pendingInvitations={myInvitations.length}
-      />
+      <div className="metric-grid product-metrics">
+        <Metric title="Torneos activos" value={activeTournaments.length} />
+        <Metric title="Torneos finalizados" value={closedTournaments.length} />
+        <Metric title="Partidos jugados" value={played} />
+        <Metric title="Goles registrados" value={totalGoals} />
+      </div>
 
       {nextForMe && (
-        <article className="card next-match focus-card">
+        <article className="card next-match focus-card product-next-match">
           <p className="eyebrow">Tu próximo partido</p>
           <strong>{getUser(state, nextForMe.match.homeUserId).alias} vs {getUser(state, nextForMe.match.awayUserId).alias}</strong>
-          <span>{nextForMe.tournament.name} · {nextForMe.match.round} · {getTeam(state, nextForMe.match.homeTeamId).short} vs {getTeam(state, nextForMe.match.awayTeamId).short}</span>
-          <button className="primary small" onClick={() => openTournament(nextForMe.tournament.id)}>Abrir sala</button>
+          <span>{nextForMe.tournament.name} · {fixtureDateLabel(nextForMe.match)} · {getTeam(state, getMatchTeamId(nextForMe.tournament, nextForMe.match, "home")).short} vs {getTeam(state, getMatchTeamId(nextForMe.tournament, nextForMe.match, "away")).short}</span>
+          <button className="primary small" onClick={() => openTournament(nextForMe.tournament.id)}>Abrir partido</button>
         </article>
       )}
 
-      <div className="grid-2">
-        <article className="card">
+      <div className="product-showcase-grid">
+        <article className="card product-panel large-panel">
           <div className="section-head">
             <div>
-              <p className="eyebrow">Tu resumen</p>
-              <h3>{currentUser.alias}</h3>
+              <p className="eyebrow">Torneos</p>
+              <h3>Salas destacadas</h3>
             </div>
-            <button className="ghost small" onClick={() => setView("perfil")}>Abrir perfil</button>
+            <button className="ghost small" onClick={() => setView("torneos")}>Ver salas</button>
           </div>
-          <div className="mini-stats">
-            <span>PJ <strong>{myRow?.pj || 0}</strong></span>
-            <span>PG <strong>{myRow?.pg || 0}</strong></span>
-            <span>Títulos <strong>{myRow?.titles || 0}</strong></span>
-            <span>Rend. <strong>{myRow?.performance || 0}%</strong></span>
-          </div>
+          <TournamentSpotlightList state={state} tournaments={featuredTournaments} openTournament={openTournament} setView={setView} />
         </article>
 
-        <article className="card">
+        <article className="card product-panel">
           <div className="section-head">
             <div>
-              <p className="eyebrow">Sala destacada</p>
-              <h3>{selectedTournament?.name || "Sin torneo"}</h3>
+              <p className="eyebrow">Ranking</p>
+              <h3>Podio global</h3>
             </div>
-            {selectedTournament && <button className="primary small" onClick={() => openTournament(selectedTournament.id)}>Abrir sala</button>}
+            <button className="ghost small" onClick={() => setView("ranking")}>Completo</button>
           </div>
-          {selectedTournament ? <TournamentMiniTable state={state} tournament={selectedTournament} /> : <EmptyState title="Sin torneo destacado" text="Crea una sala o acepta una invitación para ver aquí el primer resumen competitivo." action="Crear torneo" onAction={() => setView("torneos")} />}
+          <ProductRankingList rows={rankingUsers.slice(0, 5)} />
         </article>
       </div>
 
-      <article className="card">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">Progreso</p>
-            <h3>Mis logros desbloqueados</h3>
+      <div className="grid-2 product-grid">
+        <article className="card product-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Equipos</p>
+              <h3>Clubes destacados</h3>
+            </div>
+            <button className="ghost small" onClick={() => setView("equipos")}>Ver equipos</button>
           </div>
-          <button className="ghost small" onClick={() => setView("perfil")}>Ver perfil</button>
-        </div>
-        <div className="achievement-strip">
-          {myAchievements.slice(0, 4).map((a) => <span key={a.id} className={a.unlocked ? "achievement on" : "achievement"}><strong>{a.title}</strong><small>{a.unlocked ? "Desbloqueado" : "Pendiente"}</small></span>)}
-        </div>
-      </article>
+          <ProductTeamHighlights state={state} rows={topTeams} />
+        </article>
+
+        <article className="card product-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Futbolistas</p>
+              <h3>Figuras del momento</h3>
+            </div>
+            <button className="ghost small" onClick={() => setView("ranking")}>Ver fichas</button>
+          </div>
+          <ProductPlayerHighlights rows={topPlayers} />
+        </article>
+      </div>
+
+      <div className="grid-2 product-grid">
+        <article className="card product-panel champion-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Palmarés</p>
+              <h3>Último torneo destacado</h3>
+            </div>
+            <button className="ghost small" onClick={() => setView("mundo")}>Ver álbum</button>
+          </div>
+          {latestChampion ? (
+            <button type="button" className="champion-card-button" onClick={() => openTournament(latestChampion.tournament.id)}>
+              <span className="champion-cup">CH</span>
+              <span>
+                <strong>{latestChampion.tournament.name}</strong>
+                <small>{latestChampion.profile.championUser?.alias || latestChampion.profile.history.champion} · {latestChampion.profile.championTeam?.short || latestChampion.profile.history.championTeam}</small>
+              </span>
+              <b>{latestChampion.profile.totalGoals} goles</b>
+            </button>
+          ) : <EmptyState title="Sin álbum histórico" text="Cuando finalices torneos, aparecerá aquí el último campeón." />}
+        </article>
+
+        <article className="card product-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Actividad</p>
+              <h3>Últimos resultados</h3>
+            </div>
+          </div>
+          <RecentResultsFeed rows={recentResults} openTournament={openTournament} />
+        </article>
+      </div>
 
       {myInvitations.length > 0 && (
-        <article className="card soft-card">
+        <article className="card soft-card product-alert">
           <div className="section-head">
             <div>
               <p className="eyebrow">Pendiente</p>
@@ -3647,10 +3734,92 @@ function Home({ state, currentUser, rankingUsers, setView, selectedTournament, o
             </div>
             <button className="secondary" onClick={() => setView("amigos")}>Responder</button>
           </div>
-          <p>Al aceptar una invitación podrás elegir equipo y quedar vinculado a ese torneo.</p>
+          <p>Acepta la invitación para seleccionar equipo y quedar vinculado al campeonato.</p>
         </article>
       )}
     </section>
+  );
+}
+
+function TournamentSpotlightList({ state, tournaments, openTournament, setView }){
+  if (!tournaments.length) return <EmptyState title="Sin torneos visibles" text="Crea tu primer torneo o acepta una invitación para ver salas destacadas." action="Crear torneo" onAction={() => setView("torneos")} />;
+  return (
+    <div className="tournament-spotlight-list">
+      {tournaments.map((tournament) => {
+        const progress = getTournamentProgress(tournament);
+        const leader = tournamentStandings(state, tournament)[0];
+        return (
+          <button key={tournament.id} type="button" className="tournament-spotlight-card" onClick={() => openTournament(tournament.id)}>
+            <span className={`status-pill ${tournament.status}`}>{STATUS_LABELS[tournament.status] || tournament.status}</span>
+            <span className="spotlight-main"><strong>{tournament.name}</strong><small>{formatLabel(tournament.format)} · {fixtureModeLabel(tournament)} · {tournament.participants.length} jugadores</small></span>
+            <span className="spotlight-progress"><b>{progress.percent}%</b><small>{progress.played}/{progress.total || 0} PJ</small></span>
+            <span className="spotlight-leader"><small>Líder</small><b>{leader ? getUser(state, leader.userId).alias : "Sin tabla"}</b></span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductRankingList({ rows }){
+  if (!rows.length) return <p className="empty">Aún no hay ranking.</p>;
+  return (
+    <div className="product-rank-list">
+      {rows.map((row) => (
+        <div className="product-rank-row" key={row.userId}>
+          <span className="rank-number">#{row.pos}</span>
+          <span><strong>{row.name}</strong><small>{row.pj} PJ · {row.performance}% · {row.titles} títulos</small></span>
+          <b>{row.score}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProductTeamHighlights({ state, rows }){
+  if (!rows.length) return <p className="empty">Sin equipos con partidos oficiales.</p>;
+  return (
+    <div className="product-team-list">
+      {rows.map((row) => {
+        const team = getTeam(state, row.teamId);
+        return (
+          <div className="product-team-row" key={row.teamId}>
+            <TeamLogo team={team} size="small" />
+            <span><strong>{row.name}</strong><small>{row.pj} PJ · {row.pg} PG · DG {row.dg}</small></span>
+            <b>{row.score}</b>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductPlayerHighlights({ rows }){
+  if (!rows.length) return <p className="empty">Registra goles y asistencias para ver figuras destacadas.</p>;
+  return (
+    <div className="product-player-list">
+      {rows.map((row) => (
+        <div className="product-player-row" key={row.key}>
+          <PlayerAvatar teamId={row.teamId} playerName={row.playerName} size="small" />
+          <span><strong>{row.playerName}</strong><small>{row.teamName} · {row.goals} G · {row.assists} A</small></span>
+          <b>{row.contributions}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecentResultsFeed({ rows, openTournament }){
+  if (!rows.length) return <p className="empty">Aún no hay resultados recientes.</p>;
+  return (
+    <div className="recent-feed-list">
+      {rows.map((row) => (
+        <button key={row.key} type="button" className="recent-feed-row" onClick={() => openTournament(row.tournamentId)}>
+          <span><strong>{row.home} {row.score} {row.away}</strong><small>{row.tournament} · {row.round}</small></span>
+          <b>{row.homeTeam} vs {row.awayTeam}</b>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -5485,37 +5654,78 @@ function TournamentInvitationCenter({ state, commit, currentUser, cloudMode = fa
 
 function MundoChute({ state, openTournament, setView }){
   const summary = getWorldSummary(state);
-  const latestChampions = summary.closed.slice(-4).reverse();
   const leader = summary.userRanking.find((r) => r.status === "Clasificado") || summary.userRanking[0];
   const topTeam = summary.teamRanking[0];
+  const topPlayers = buildPlayerContributionRanking(state).slice(0, 5);
+  const activeTournaments = getFeaturedTournaments(state.tournaments.filter((t) => t.status !== "closed"), 5);
+  const recentResults = getRecentResultRows(state, state.tournaments, 6);
+  const latestChampion = getLatestTournamentChampion(state);
+  const totalGoals = state.tournaments.flatMap((t) => t.matches).filter(matchPlayed).reduce((sum, match) => sum + Number(match.homeGoals || 0) + Number(match.awayGoals || 0), 0);
   return (
-    <section className="stack">
-      <div className="hero-panel world-panel">
+    <section className="stack mundo-product">
+      <div className="hero-panel world-panel product-hero">
         <div>
-          <p className="eyebrow">Lobby global</p>
+          <p className="eyebrow">Portada competitiva</p>
           <h2>Mundo Chute</h2>
-          <p>Vista general de la plataforma: torneos activos, campeones, récords, usuarios destacados y equipos dominantes.</p>
+          <p>Una vista general de la actividad competitiva: campeones, rankings, clubes, futbolistas y torneos activos.</p>
           <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
         </div>
-        <div className="hero-card"><span>Líder competitivo</span><strong>{leader?.name || "Sin datos"}</strong><p>{leader ? `${leader.score} pts · ${leader.performance}%` : "Sin partidos"}</p><small>Equipo líder: {topTeam?.name || "Sin datos"}</small></div>
+        <div className="product-hero-board">
+          <div className="scoreboard-main">
+            <span>Líder competitivo</span>
+            <strong>{leader?.name || "Sin datos"}</strong>
+            <small>{leader ? `${leader.score} pts · ${leader.performance}% rendimiento` : "Registra partidos para activar el ranking."}</small>
+          </div>
+          <div className="scoreboard-row"><span>Equipo líder</span><b>{topTeam?.name || "Sin datos"}</b><em>{topTeam ? `${topTeam.score} pts` : "—"}</em></div>
+          <div className="scoreboard-row"><span>Último campeón</span><b>{latestChampion?.profile?.championUser?.alias || "Sin campeón"}</b><em>{latestChampion?.profile?.championTeam?.short || "—"}</em></div>
+        </div>
       </div>
-      <div className="metric-grid">
+
+      <div className="metric-grid product-metrics wide-metrics">
         <Metric title="Usuarios" value={state.users.length} />
-        <Metric title="Torneos registrados" value={state.tournaments.length} />
         <Metric title="Torneos activos" value={summary.activeCount} />
+        <Metric title="Torneos finalizados" value={summary.closed.length} />
         <Metric title="Partidos ranking" value={summary.played} />
-        <Metric title="Torneos privados" value={summary.privateCount} />
+        <Metric title="Goles registrados" value={totalGoals} />
       </div>
-      <article className="card privacy-card">
-        <div className="section-head"><div><p className="eyebrow">Alcance global</p><h3>Mundo Chute muestra rankings, no salas privadas completas</h3></div></div>
-        <p>Esta vista puede mostrar usuarios, equipos, récords y campeones agregados. Los torneos concretos se abren solo desde “Mis salas”, invitaciones o solicitudes aceptadas.</p>
-      </article>
-      <div className="grid-2">
-        <article className="card"><h3>Resumen competitivo</h3><div className="list spaced"><div className="list-row"><span><strong>{leader?.name || "Sin datos"}</strong><small>Líder global clasificado</small></span><b>{leader?.score || 0}</b></div><div className="list-row"><span><strong>{topTeam?.name || "Sin datos"}</strong><small>Equipo mejor posicionado</small></span><b>{topTeam?.score || 0}</b></div></div></article>
-        <article className="card"><h3>Últimos campeones globales</h3><div className="list spaced">{latestChampions.map((t) => <div className="list-row" key={t.id}><span><strong>{getUser(state, t.championUserId).alias}</strong><small>{getTeam(state, t.championTeamId).short} · {t.season || state.currentSeason}</small></span><b>Campeón</b></div>)}{!latestChampions.length && <p className="empty">Aún no hay torneos cerrados con campeón.</p>}</div></article>
+
+      <div className="product-showcase-grid">
+        <article className="card product-panel large-panel">
+          <div className="section-head">
+            <div><p className="eyebrow">Agenda competitiva</p><h3>Torneos activos destacados</h3></div>
+            <button className="ghost small" onClick={() => setView("torneos")}>Mis salas</button>
+          </div>
+          <TournamentSpotlightList state={state} tournaments={activeTournaments} openTournament={openTournament} setView={setView} />
+        </article>
+        <article className="card product-panel">
+          <div className="section-head">
+            <div><p className="eyebrow">Usuarios</p><h3>Top global</h3></div>
+            <button className="ghost small" onClick={() => setView("ranking")}>Ranking</button>
+          </div>
+          <ProductRankingList rows={summary.userRanking.slice(0, 5)} />
+        </article>
       </div>
+
+      <div className="grid-2 product-grid">
+        <article className="card product-panel">
+          <div className="section-head"><div><p className="eyebrow">Clubes</p><h3>Equipos dominantes</h3></div><button className="ghost small" onClick={() => setView("equipos")}>Equipos</button></div>
+          <ProductTeamHighlights state={state} rows={summary.teamRanking.slice(0, 4)} />
+        </article>
+        <article className="card product-panel">
+          <div className="section-head"><div><p className="eyebrow">Cartas</p><h3>Futbolistas destacados</h3></div><button className="ghost small" onClick={() => setView("ranking")}>Fichas</button></div>
+          <ProductPlayerHighlights rows={topPlayers} />
+        </article>
+      </div>
+
+      <div className="grid-2 product-grid">
+        <article className="card product-panel">
+          <div className="section-head"><div><p className="eyebrow">Actividad</p><h3>Últimos resultados</h3></div></div>
+          <RecentResultsFeed rows={recentResults} openTournament={openTournament} />
+        </article>
+        <RecordsPanel state={state} />
+      </div>
+
       <HistoryArchivePanel state={state} openTournament={openTournament} />
-      <RecordsPanel state={state} />
     </section>
   );
 }

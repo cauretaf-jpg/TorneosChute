@@ -3009,3 +3009,306 @@ button.tournament-archive-card:hover {
   .tournament-profile-stats { grid-template-columns: 1fr; }
   .tournament-cup-badge { width: 64px; height: 64px; border-radius: 22px; }
 }
+
+/* v1.8.5 · Inicio tipo producto final */
+.product-home,
+.mundo-product {
+  gap: 20px;
+}
+.product-hero {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr);
+  min-height: 330px;
+  align-items: center;
+}
+.product-hero h2 {
+  max-width: 820px;
+}
+.product-hero p {
+  max-width: 760px;
+  font-size: 1.02rem;
+}
+.product-hero-board {
+  display: grid;
+  gap: 12px;
+  align-self: stretch;
+}
+.scoreboard-main,
+.scoreboard-row,
+.champion-card-button,
+.tournament-spotlight-card,
+.product-rank-row,
+.product-team-row,
+.product-player-row,
+.recent-feed-row {
+  border: 1px solid rgba(255,255,255,.11);
+  background: rgba(255,255,255,.055);
+}
+.scoreboard-main {
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  min-height: 160px;
+  padding: 22px;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,209,102,.16), transparent 28%),
+    linear-gradient(145deg, rgba(94,211,255,.18), rgba(124,92,255,.15));
+}
+.scoreboard-main span,
+.scoreboard-row span {
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+.scoreboard-main strong {
+  display: block;
+  font-size: clamp(1.7rem, 3vw, 2.65rem);
+  line-height: 1;
+  letter-spacing: -.06em;
+}
+.scoreboard-main small,
+.scoreboard-row em {
+  color: var(--muted);
+  font-style: normal;
+}
+.scoreboard-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 18px;
+}
+.scoreboard-row b {
+  font-size: 1.05rem;
+}
+.scoreboard-row em {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-weight: 900;
+  color: var(--primary);
+}
+.product-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.product-metrics.wide-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.product-showcase-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .9fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.product-panel {
+  min-width: 0;
+}
+.product-panel.large-panel {
+  min-height: 100%;
+}
+.tournament-spotlight-list,
+.product-rank-list,
+.product-team-list,
+.product-player-list,
+.recent-feed-list {
+  display: grid;
+  gap: 10px;
+}
+.tournament-spotlight-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 20px;
+  color: var(--text);
+  text-align: left;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+.tournament-spotlight-card:hover,
+.champion-card-button:hover,
+.recent-feed-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(94,211,255,.30);
+  background: rgba(94,211,255,.075);
+}
+.spotlight-main strong,
+.spotlight-main small,
+.spotlight-leader small,
+.spotlight-leader b,
+.product-rank-row strong,
+.product-rank-row small,
+.product-team-row strong,
+.product-team-row small,
+.product-player-row strong,
+.product-player-row small,
+.recent-feed-row strong,
+.recent-feed-row small {
+  display: block;
+}
+.spotlight-main small,
+.spotlight-leader small,
+.product-rank-row small,
+.product-team-row small,
+.product-player-row small,
+.recent-feed-row small {
+  color: var(--muted);
+  margin-top: 2px;
+}
+.spotlight-progress {
+  min-width: 76px;
+  text-align: right;
+}
+.spotlight-progress b {
+  display: block;
+  color: var(--primary);
+  font-size: 1.1rem;
+}
+.spotlight-progress small {
+  color: var(--muted);
+}
+.spotlight-leader {
+  min-width: 92px;
+  text-align: right;
+}
+.product-rank-row,
+.product-team-row,
+.product-player-row,
+.recent-feed-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 18px;
+}
+.recent-feed-row {
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+}
+.product-team-row,
+.product-player-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.rank-number,
+.champion-cup {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(94,211,255,.20), rgba(124,92,255,.18));
+  border: 1px solid rgba(255,255,255,.12);
+  font-weight: 900;
+  color: var(--primary);
+}
+.product-rank-row b,
+.product-team-row b,
+.product-player-row b {
+  font-size: 1.1rem;
+  color: var(--primary);
+}
+.product-next-match {
+  display: grid;
+  gap: 6px;
+  border-color: rgba(255,209,102,.22);
+  background: linear-gradient(135deg, rgba(255,209,102,.10), rgba(94,211,255,.06));
+}
+.product-next-match strong {
+  font-size: 1.2rem;
+}
+.product-next-match span {
+  color: var(--muted);
+}
+.champion-card-button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 22px;
+  color: var(--text);
+  text-align: left;
+}
+.champion-card-button strong,
+.champion-card-button small {
+  display: block;
+}
+.champion-card-button small {
+  color: var(--muted);
+  margin-top: 4px;
+}
+.champion-card-button b {
+  color: var(--primary);
+}
+.product-alert {
+  border-color: rgba(255,209,102,.24);
+}
+.theme-light .scoreboard-main,
+.theme-light .scoreboard-row,
+.theme-light .champion-card-button,
+.theme-light .tournament-spotlight-card,
+.theme-light .product-rank-row,
+.theme-light .product-team-row,
+.theme-light .product-player-row,
+.theme-light .recent-feed-row {
+  background: rgba(255,255,255,.84);
+  border-color: rgba(15,23,42,.11);
+}
+.theme-light .scoreboard-main {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,209,102,.20), transparent 28%),
+    linear-gradient(145deg, rgba(33,119,255,.11), rgba(119,89,255,.08));
+}
+.theme-light .rank-number,
+.theme-light .champion-cup {
+  background: linear-gradient(135deg, rgba(33,119,255,.11), rgba(119,89,255,.08));
+  border-color: rgba(15,23,42,.10);
+}
+@media (max-width: 1180px) {
+  .product-hero,
+  .product-showcase-grid {
+    grid-template-columns: 1fr;
+  }
+  .product-metrics.wide-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 820px) {
+  .product-metrics,
+  .product-metrics.wide-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tournament-spotlight-card {
+    grid-template-columns: 1fr;
+  }
+  .spotlight-progress,
+  .spotlight-leader {
+    text-align: left;
+  }
+}
+@media (max-width: 560px) {
+  .product-metrics,
+  .product-metrics.wide-metrics {
+    grid-template-columns: 1fr;
+  }
+  .product-rank-row,
+  .product-team-row,
+  .product-player-row,
+  .recent-feed-row,
+  .champion-card-button {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .product-rank-row b,
+  .product-team-row b,
+  .product-player-row b,
+  .recent-feed-row b,
+  .champion-card-button b {
+    grid-column: 2;
+  }
+}

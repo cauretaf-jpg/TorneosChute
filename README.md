@@ -46,7 +46,7 @@ Antes de usar playoffs en Supabase, ejecuta `supabase/16_playoffs_1_7.sql`. La e
 - Muestra rendimiento, palmarés, equipos usados, rivales frecuentes, últimos partidos, futbolistas destacados y logros.
 - No requiere SQL nuevo.
 
-### 1.8.4 · Perfil de torneos
+### 1.8.5 · Perfil de torneos
 
 - Agrega ficha competitiva para cada torneo.
 - El palmarés ahora se presenta como álbum histórico de torneos finalizados.

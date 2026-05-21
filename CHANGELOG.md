@@ -1,4 +1,14 @@
 
+## 1.8.5 · Inicio tipo producto final
+
+- Rediseño del Inicio como portada principal de la plataforma.
+- Nuevo panel visual con campeón reciente, líder global y equipo destacado.
+- Nuevas tarjetas para torneos activos, podio global, equipos destacados y futbolistas destacados.
+- Mundo Chute se reorganiza como dashboard deportivo general.
+- Se reducen textos internos o de explicación técnica en las vistas principales.
+- No requiere SQL nuevo.
+
+
 ## 1.8.3 - Perfiles de futbolistas
 
 - Se agregan perfiles competitivos para futbolistas oficiales.
