@@ -2703,3 +2703,138 @@ tr:last-child td { border-bottom: 0; }
   .user-profile-stats { grid-template-columns: 1fr; }
   .avatar.huge { width: 78px; height: 78px; border-radius: 24px; }
 }
+
+/* v1.8.3 - perfiles de futbolistas */
+.player-avatar.xl {
+  width: 104px;
+  height: 104px;
+  border-radius: 32px;
+  box-shadow: 0 22px 60px rgba(94, 211, 255, .18);
+}
+.player-profile-detail {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: radial-gradient(circle at 10% 10%, rgba(255, 209, 102, .16), transparent 34%), linear-gradient(135deg, rgba(94,211,255,.12), rgba(255,255,255,.045));
+  box-shadow: var(--shadow);
+}
+.player-profile-detail::after {
+  content: "";
+  position: absolute;
+  inset: -30% -18% auto auto;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.075);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.player-profile-detail.azul { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(33,128,255,.20), rgba(255,255,255,.045)); }
+.player-profile-detail.rojo { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(255,76,76,.18), rgba(255,255,255,.045)); }
+.player-profile-detail.morado { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(163,99,255,.19), rgba(255,255,255,.045)); }
+.player-profile-detail.naranja { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(255,151,61,.18), rgba(255,255,255,.045)); }
+.player-profile-detail.celeste { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(79,209,255,.18), rgba(255,255,255,.045)); }
+.player-profile-detail.verde { background: radial-gradient(circle at 10% 10%, rgba(255,209,102,.12), transparent 35%), linear-gradient(135deg, rgba(74,222,128,.16), rgba(255,255,255,.045)); }
+.player-profile-detail > * { position: relative; z-index: 1; }
+.player-profile-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+.player-profile-hero h2 { margin: 0 0 4px; }
+.player-profile-hero p { margin: 0; color: var(--muted); }
+.player-profile-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.player-profile-grid { margin-top: 0; }
+.player-card-grid,
+.player-mini-list {
+  display: grid;
+  gap: 10px;
+}
+.player-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 10px 0 18px;
+}
+.player-rank-card,
+.player-mini-row,
+.roster-player-button {
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.player-rank-card,
+.player-mini-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.045);
+}
+.player-rank-card {
+  grid-template-columns: auto 1fr auto;
+  padding: 12px;
+  border-radius: 18px;
+}
+.player-mini-row {
+  grid-template-columns: auto 1fr auto;
+  padding: 10px;
+  border-radius: 16px;
+}
+.player-rank-card:hover,
+.player-rank-card.selected,
+.player-mini-row:hover,
+.player-mini-row.selected,
+.roster-player-button:hover,
+.roster-player-button.selected {
+  transform: translateY(-1px);
+  border-color: rgba(94,211,255,.34);
+  background: rgba(94,211,255,.10);
+}
+.player-rank-card span strong,
+.player-rank-card span small,
+.player-mini-row span strong,
+.player-mini-row span small {
+  display: block;
+}
+.player-rank-card span small,
+.player-mini-row span small { margin-top: 3px; color: var(--muted); }
+.player-rank-card b,
+.player-mini-row b { color: var(--primary); }
+.roster-player-button {
+  width: 100%;
+  text-align: left;
+}
+.theme-light .player-profile-detail {
+  background: radial-gradient(circle at 10% 10%, rgba(255,193,7,.13), transparent 34%), linear-gradient(135deg, rgba(255,255,255,.92), rgba(239,246,255,.82));
+}
+.theme-light .player-rank-card,
+.theme-light .player-mini-row {
+  background: rgba(255,255,255,.72);
+  border-color: rgba(15,23,42,.10);
+}
+.theme-light .player-rank-card:hover,
+.theme-light .player-rank-card.selected,
+.theme-light .player-mini-row:hover,
+.theme-light .player-mini-row.selected,
+.theme-light .roster-player-button:hover,
+.theme-light .roster-player-button.selected {
+  background: rgba(33,119,255,.08);
+  border-color: rgba(33,119,255,.24);
+}
+@media (max-width: 920px){
+  .player-profile-hero { grid-template-columns: auto 1fr; }
+  .player-profile-hero .status-pill { grid-column: 1 / -1; justify-self: start; }
+  .player-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .player-card-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px){
+  .player-avatar.xl { width: 84px; height: 84px; border-radius: 26px; }
+  .player-profile-detail { padding: 16px; border-radius: 24px; }
+  .player-profile-hero { grid-template-columns: 1fr; }
+  .player-profile-stats { grid-template-columns: 1fr; }
+}

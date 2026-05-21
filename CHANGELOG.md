@@ -1,3 +1,12 @@
+
+## 1.8.3 - Perfiles de futbolistas
+
+- Se agregan perfiles competitivos para futbolistas oficiales.
+- Las plantillas de equipos permiten seleccionar jugadores y ver su ficha.
+- Ranking Goles/Asistencias ahora permite abrir un perfil de futbolista.
+- La pestaña Fichas incorpora selector de futbolista.
+- Cada ficha muestra goles, asistencias, G+A, torneos, usuarios destacados y últimos registros.
+
 # Changelog
 
 ## 1.8.1
