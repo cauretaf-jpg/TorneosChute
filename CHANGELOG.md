@@ -1,4 +1,10 @@
 
+## 1.7.1
+- Se corrigió la finalización de torneos cuando Supabase devuelve 404 por caché/esquema REST.
+- Se agregó `supabase/17_fix_finish_tournament_1_7_1.sql`.
+- Se simplificaron textos visibles relacionados con definiciones por penales.
+
+
 ## 1.7.0 - Playoffs y definiciones
 
 - Agrega eliminación directa con llave de playoff.

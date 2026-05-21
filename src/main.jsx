@@ -2553,9 +2553,38 @@ function App(){
       await refreshCloudTournaments({ silent: true });
       return true;
     } catch (error) {
-      const rawMessage = error?.message || "No se pudo actualizar el estado del torneo.";
+      let rawMessage = error?.message || "No se pudo actualizar el estado del torneo.";
+      const missingCloseFunction = status === "closed" && (
+        error?.status === 404 ||
+        error?.code === "PGRST202" ||
+        rawMessage.includes("close_chute_tournament") ||
+        rawMessage.includes("Could not find the function") ||
+        rawMessage.includes("Failed to fetch")
+      );
+
+      if (missingCloseFunction) {
+        const fallbackPayload = {
+          status: "closed",
+          champion_user_id: extra.champion_user_id || null,
+          champion_team_id: extra.champion_team_id || null
+        };
+        const { error: fallbackError } = await supabaseClient
+          .from("tournaments")
+          .update(fallbackPayload)
+          .eq("id", tournamentId);
+
+        if (!fallbackError) {
+          await insertCloudActivity(tournamentId, "closed", "El torneo fue finalizado.");
+          setCloudTournamentsNotice("Torneo finalizado correctamente.");
+          await refreshCloudTournaments({ silent: true });
+          return true;
+        }
+
+        rawMessage = fallbackError?.message || rawMessage;
+      }
+
       const friendlyMessage = rawMessage.includes("close_chute_tournament") || rawMessage.includes("Could not find the function")
-        ? "Falta ejecutar el SQL de actualización 1.6 en Supabase."
+        ? "No se pudo finalizar el torneo. Ejecuta la actualización de base de datos 1.7.1 y vuelve a intentar."
         : rawMessage;
       setCloudTournamentsNotice(friendlyMessage);
       return false;
@@ -3655,7 +3684,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
           {format === "knockout" && (
             <div className="info-note playoff-note">
               <strong>Definición de eliminación directa</strong>
-              <span>Si un partido termina empatado, se elegirá ganador por penales. Los penales no se registran como goles normales.</span>
+              <span>Si un partido termina empatado, se elegirá ganador por penales.</span>
               <label className="check-line block"><input type="checkbox" checked={thirdPlaceEnabled} onChange={(e) => setThirdPlaceEnabled(e.target.checked)} /> Incluir partido por tercer lugar</label>
             </div>
           )}
@@ -4408,7 +4437,6 @@ function TournamentHistoryPanel({ state, tournament, history, goalRows, assistRo
           <SimpleTable rows={assistRows.slice(0, 5)} columns={["pos", "playerName", "teamName", "assists", "last"]} labels={{ pos: "#", playerName: "Asistidor", teamName: "Equipo", assists: "A", last: "Último" }} compact />
         </section>
       </div>
-      <p className="hint">No se incluyen tiros libres, autogoles ni penales como eventos normales de Chute. Los penales quedan reservados para futuras definiciones de playoff.</p>
     </div>
   );
 }
@@ -4567,7 +4595,7 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
       </div>
 
       {!readyForResult && <p className="hint">Este partido espera clasificados de una ronda anterior.</p>}
-      {isKnockoutTournament(tournament) && matchPlayed(match) && match.penaltyWinnerUserId && <p className="hint">Ganador por penales: <strong>{playoffWinner?.alias || "Definido"}</strong>. Los penales no cuentan como goles normales.</p>}
+      {isKnockoutTournament(tournament) && matchPlayed(match) && match.penaltyWinnerUserId && <p className="hint">Ganador por penales: <strong>{playoffWinner?.alias || "Definido"}</strong>.</p>}
       {playoffTie && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
         <div className="penalty-box">
           <label>Ganador por penales
@@ -4577,7 +4605,7 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
               <option value={match.awayUserId}>{getUser(state, match.awayUserId).alias}</option>
             </select>
           </label>
-          <small>Solo para definición de playoff. No se registra como gol, penal normal ni evento adicional.</small>
+          <small>Solo para definición de playoff.</small>
         </div>
       )}
       {freeTeams && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
@@ -4628,7 +4656,7 @@ function GoalEventsEditor({ state, tournament, match, canEdit, onAddGoal, onRemo
 
   function add(){
     if (!teamId) return alert("Primero selecciona y guarda los equipos del partido.");
-    if (minute && (!Number.isInteger(Number(minute)) || Number(minute) < 1 || Number(minute) > 90)) return alert("El minuto debe ser un número entre 1 y 90. En Chute no se registran tiros libres, penales ni autogoles como eventos normales.");
+    if (minute && (!Number.isInteger(Number(minute)) || Number(minute) < 1 || Number(minute) > 90)) return alert("El minuto debe ser un número entre 1 y 90.");
     onAddGoal(match.id, {
       teamId,
       side,
@@ -4644,7 +4672,7 @@ function GoalEventsEditor({ state, tournament, match, canEdit, onAddGoal, onRemo
 
   return (
     <div className="goal-events-box">
-      <div className="section-head compact-head"><div><p className="eyebrow">Detalle opcional</p><h4>Registro de goles</h4><small>Chute no usa tiros libres, autogoles ni penales como eventos normales.</small></div></div>
+      <div className="section-head compact-head"><div><p className="eyebrow">Detalle opcional</p><h4>Registro de goles</h4></div></div>
       <div className="goal-list">
         {(match.goalEvents || []).map((event) => <div className="goal-chip with-player" key={event.id}><PlayerAvatar teamId={event.teamId} playerName={event.playerName} size="sm" /><span><strong>Gol: {event.playerName}</strong>{event.assistName ? <em><PlayerAvatar teamId={event.teamId} playerName={event.assistName} size="micro" /> Asistencia: {event.assistName}</em> : <em>Sin asistencia</em>}<small>{getTeam(state, event.teamId).short}{event.minute ? ` · ${event.minute}'` : ""}</small></span>{canEdit && <button className="ghost tiny" onClick={() => onRemoveGoal(match.id, event.id)}>Quitar</button>}</div>)}
         {!(match.goalEvents || []).length && <p className="empty small-empty">Sin goles registrados.</p>}
