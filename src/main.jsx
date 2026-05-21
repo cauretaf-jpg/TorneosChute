@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const DATA_VERSION = 6;
 
 
@@ -68,6 +68,7 @@ function cloudTournamentToLocal(row, participants = [], joinRequests = [], match
     allowDuplicateTeams: Boolean(row.allow_duplicate_teams),
     teamSelectionMode: row.team_selection_mode || "fixed",
     fixtureMode: row.fixture_mode || "single_leg",
+    thirdPlaceEnabled: Boolean(row.third_place_enabled),
     inviteCode: row.invite_code || makeInviteCode(row.name || "CHUTE"),
     season: row.season || CURRENT_SEASON,
     creatorId: row.creator_id,
@@ -131,12 +132,23 @@ function cloudMatchToLocal(row, goalRows = []) {
       awayGoals: row.proposed_away_goals,
       proposedBy: row.proposed_by,
       status: row.result_status === "rejected" ? "rejected" : "pending",
-      createdAt: (row.created_at || new Date().toISOString()).slice(0, 10)
+      createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+      penaltyWinnerUserId: row.proposed_penalty_winner_user_id || null
     } : null,
     proposedBy: row.proposed_by || null,
     confirmedBy: row.confirmed_by || null,
     playedAt: row.played_at || null,
     sortOrder: row.sort_order ?? 0,
+    stage: row.stage || null,
+    bracketRound: row.bracket_round || null,
+    bracketSlot: row.bracket_slot ?? null,
+    nextMatchId: row.next_match_id || null,
+    nextSide: row.next_side || null,
+    loserNextMatchId: row.loser_next_match_id || null,
+    loserNextSide: row.loser_next_side || null,
+    winnerUserId: row.winner_user_id || null,
+    penaltyWinnerUserId: row.penalty_winner_user_id || null,
+    proposedPenaltyWinnerUserId: row.proposed_penalty_winner_user_id || null,
     goalEvents: goalRows.map(cloudGoalEventToLocal),
     cloud: true
   };
@@ -560,6 +572,7 @@ const seedState = () => {
     allowDuplicateTeams: false,
     teamSelectionMode: "fixed",
     fixtureMode: "single_leg",
+    thirdPlaceEnabled: false,
     inviteCode: "APERT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -585,6 +598,7 @@ const seedState = () => {
     allowDuplicateTeams: false,
     teamSelectionMode: "fixed",
     fixtureMode: "single_leg",
+    thirdPlaceEnabled: false,
     inviteCode: "INVIT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -661,6 +675,7 @@ function normalizeState(parsed){
       allowDuplicateTeams: false,
       teamSelectionMode: t.teamSelectionMode || t.team_selection_mode || "fixed",
       fixtureMode: t.fixtureMode || t.fixture_mode || "single_leg",
+      thirdPlaceEnabled: Boolean(t.thirdPlaceEnabled || t.third_place_enabled),
       inviteCode: t.inviteCode || makeInviteCode(t.name || "CHUTE"),
       season: t.season || CURRENT_SEASON,
       championUserId: null,
@@ -737,7 +752,237 @@ function roundRobin(participants, options = {}){
   return doubleLeg ? [...firstLeg, ...secondLeg] : firstLeg;
 }
 
+
+function safeRandomId(prefix = "m", uuid = false){
+  if (uuid && globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return uid(prefix);
+}
+
+function isKnockoutTournament(tournament){
+  return tournament?.format === "knockout";
+}
+
+function isPowerOfTwo(value){
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+function playoffStageLabel(roundIndex, totalRounds){
+  const remaining = totalRounds - roundIndex;
+  if (remaining === 1) return "Final";
+  if (remaining === 2) return "Semifinal";
+  if (remaining === 3) return "Cuartos de final";
+  if (remaining === 4) return "Octavos de final";
+  return `Ronda ${roundIndex}`;
+}
+
+function buildTournamentFixture(tournament, options = {}){
+  if (isKnockoutTournament(tournament)) {
+    return knockoutBracket(tournament.participants || [], {
+      freeTeams: isFreeTeamTournament(tournament),
+      thirdPlaceEnabled: Boolean(tournament.thirdPlaceEnabled),
+      uuidIds: options.uuidIds
+    });
+  }
+  return roundRobin(tournament.participants || [], {
+    freeTeams: isFreeTeamTournament(tournament),
+    doubleLeg: isDoubleLegTournament(tournament)
+  });
+}
+
+function knockoutBracket(participants, options = {}){
+  const players = (participants || []).map((p) => ({ ...p }));
+  if (!isPowerOfTwo(players.length) || players.length < 2) {
+    throw new Error("La eliminación directa necesita 2, 4, 8 o 16 participantes confirmados.");
+  }
+  const freeTeams = Boolean(options.freeTeams);
+  const totalRounds = Math.log2(players.length);
+  const rounds = [];
+  let sortOrder = 1;
+  let previousRoundMatches = [];
+
+  for (let roundIndex = 1; roundIndex <= totalRounds; roundIndex++) {
+    const stage = playoffStageLabel(roundIndex, totalRounds);
+    const matchesInRound = players.length / Math.pow(2, roundIndex);
+    const currentRound = [];
+    for (let slot = 1; slot <= matchesInRound; slot++) {
+      const isFirstRound = roundIndex === 1;
+      const homeParticipant = isFirstRound ? players[(slot - 1) * 2] : null;
+      const awayParticipant = isFirstRound ? players[(slot - 1) * 2 + 1] : null;
+      currentRound.push({
+        id: safeRandomId("m", options.uuidIds),
+        round: matchesInRound === 1 ? "Final" : `${stage} ${slot}`,
+        stage: stage.toLowerCase().replaceAll(" ", "_"),
+        bracketRound: roundIndex,
+        bracketSlot: slot,
+        homeUserId: homeParticipant?.userId || null,
+        awayUserId: awayParticipant?.userId || null,
+        homeTeamId: freeTeams ? null : (homeParticipant?.teamId || null),
+        awayTeamId: freeTeams ? null : (awayParticipant?.teamId || null),
+        homeGoals: null,
+        awayGoals: null,
+        resultStatus: null,
+        resultProposal: null,
+        goalEvents: [],
+        playedAt: null,
+        sortOrder: sortOrder++,
+        nextMatchId: null,
+        nextSide: null,
+        loserNextMatchId: null,
+        loserNextSide: null,
+        winnerUserId: null,
+        penaltyWinnerUserId: null
+      });
+    }
+    previousRoundMatches.forEach((match, index) => {
+      const target = currentRound[Math.floor(index / 2)];
+      if (target) {
+        match.nextMatchId = target.id;
+        match.nextSide = index % 2 === 0 ? "home" : "away";
+      }
+    });
+    rounds.push(currentRound);
+    previousRoundMatches = currentRound;
+  }
+
+  if (options.thirdPlaceEnabled && players.length >= 4) {
+    const semifinals = rounds[rounds.length - 2] || [];
+    const third = {
+      id: safeRandomId("m", options.uuidIds),
+      round: "Tercer lugar",
+      stage: "tercer_lugar",
+      bracketRound: totalRounds,
+      bracketSlot: 99,
+      homeUserId: null,
+      awayUserId: null,
+      homeTeamId: null,
+      awayTeamId: null,
+      homeGoals: null,
+      awayGoals: null,
+      resultStatus: null,
+      resultProposal: null,
+      goalEvents: [],
+      playedAt: null,
+      sortOrder: sortOrder++,
+      nextMatchId: null,
+      nextSide: null,
+      loserNextMatchId: null,
+      loserNextSide: null,
+      winnerUserId: null,
+      penaltyWinnerUserId: null
+    };
+    semifinals.forEach((match, index) => {
+      match.loserNextMatchId = third.id;
+      match.loserNextSide = index === 0 ? "home" : "away";
+    });
+    rounds.push([third]);
+  }
+
+  return rounds.flat();
+}
+
+function playoffMatchReady(match){
+  return Boolean(match?.homeUserId && match?.awayUserId);
+}
+
+function getMatchWinnerUserId(match){
+  if (!matchPlayed(match)) return null;
+  const home = Number(match.homeGoals);
+  const away = Number(match.awayGoals);
+  if (home > away) return match.homeUserId;
+  if (away > home) return match.awayUserId;
+  return match.penaltyWinnerUserId || match.resultProposal?.penaltyWinnerUserId || null;
+}
+
+function getMatchLoserUserId(match){
+  const winner = getMatchWinnerUserId(match);
+  if (!winner) return null;
+  return winner === match.homeUserId ? match.awayUserId : match.homeUserId;
+}
+
+
+function getKnockoutFinalMatch(tournament){
+  if (!isKnockoutTournament(tournament)) return null;
+  return (tournament.matches || []).find((m) => m.stage === "final" || m.round === "Final") || null;
+}
+
+function buildKnockoutResultRow(state, tournament, userId, match){
+  if (!userId || !match) return null;
+  const user = getUser(state, userId);
+  const side = userId === match.homeUserId ? "home" : userId === match.awayUserId ? "away" : null;
+  const teamId = side ? getMatchTeamId(tournament, match, side) : getParticipantTeamId(tournament, userId);
+  return {
+    userId,
+    teamId,
+    name: user.alias || user.name,
+    teamName: getTeam(state, teamId).short || getTeam(state, teamId).name,
+    ...emptyStats(),
+    performance: 0
+  };
+}
+
+function getTournamentChampionRow(state, tournament, standings){
+  if (isKnockoutTournament(tournament)) {
+    const final = getKnockoutFinalMatch(tournament);
+    const winnerId = getMatchWinnerUserId(final);
+    const row = buildKnockoutResultRow(state, tournament, winnerId, final);
+    if (row) return row;
+  }
+  return standings[0] || null;
+}
+
+function getTournamentRunnerUpRow(state, tournament, standings){
+  if (isKnockoutTournament(tournament)) {
+    const final = getKnockoutFinalMatch(tournament);
+    const loserId = getMatchLoserUserId(final);
+    const row = buildKnockoutResultRow(state, tournament, loserId, final);
+    if (row) return row;
+  }
+  return standings[1] || null;
+}
+
+function getAdvancingTeamId(tournament, match, userId){
+  if (!userId) return null;
+  if (isFreeTeamTournament(tournament)) return null;
+  if (userId === match.homeUserId) return getMatchTeamId(tournament, match, "home") || null;
+  if (userId === match.awayUserId) return getMatchTeamId(tournament, match, "away") || null;
+  return getParticipantTeamId(tournament, userId) || null;
+}
+
+function applyPlayoffAdvancement(tournament, sourceMatchId){
+  if (!isKnockoutTournament(tournament)) return;
+  const matches = tournament.matches || [];
+  const source = matches.find((m) => m.id === sourceMatchId);
+  if (!source || !matchPlayed(source)) return;
+  const winnerUserId = getMatchWinnerUserId(source);
+  const loserUserId = getMatchLoserUserId(source);
+  if (!winnerUserId) return;
+  source.winnerUserId = winnerUserId;
+
+  const applySide = (targetId, side, userId) => {
+    if (!targetId || !side || !userId) return;
+    const target = matches.find((m) => m.id === targetId);
+    if (!target) return;
+    const userKey = side === "home" ? "homeUserId" : "awayUserId";
+    const teamKey = side === "home" ? "homeTeamId" : "awayTeamId";
+    target[userKey] = userId;
+    target[teamKey] = getAdvancingTeamId(tournament, source, userId);
+  };
+
+  applySide(source.nextMatchId, source.nextSide, winnerUserId);
+  applySide(source.loserNextMatchId, source.loserNextSide, loserUserId);
+}
+
+function validatePlayoffResult(tournament, match, homeGoals, awayGoals, penaltyWinnerUserId){
+  if (!isKnockoutTournament(tournament)) return "";
+  if (!playoffMatchReady(match)) return "Este partido aún espera clasificados.";
+  if (Number(homeGoals) === Number(awayGoals) && !penaltyWinnerUserId) {
+    return "En eliminación directa, si hay empate debes elegir ganador por penales.";
+  }
+  return "";
+}
+
 function matchPlayed(match){
+  if (!match) return false;
   return match.homeGoals !== null && match.awayGoals !== null && match.homeGoals !== "" && match.awayGoals !== "";
 }
 
@@ -788,6 +1033,7 @@ function getFinishBlockReason(tournament){
   if (!tournament?.matches?.length) return "Primero genera el fixture.";
   if (tournament.matches.some(hasPendingResult)) return "Hay resultados pendientes de confirmar o corregir.";
   if (tournament.matches.some((m) => !matchPlayed(m))) return "Aún hay partidos sin marcador.";
+  if (isKnockoutTournament(tournament) && tournament.matches.some((m) => matchPlayed(m) && Number(m.homeGoals) === Number(m.awayGoals) && !m.penaltyWinnerUserId)) return "Hay empates de eliminación directa sin ganador por penales.";
   if (tournamentGoalIssueCount(tournament) > 0) return "Hay diferencias entre marcador y goles registrados.";
   if (!tournament.matches.some(matchPlayed)) return "Debe existir al menos un partido jugado.";
   return "";
@@ -1338,8 +1584,8 @@ function buildRecords(state){
 }
 
 function buildTournamentFinishSummary(state, tournament, standings, goalRows, assistRows){
-  const champion = standings[0] || null;
-  const runnerUp = standings[1] || null;
+  const champion = getTournamentChampionRow(state, tournament, standings);
+  const runnerUp = getTournamentRunnerUpRow(state, tournament, standings);
   const bestAttack = [...standings].sort((a, b) => b.gf - a.gf || b.dg - a.dg)[0] || null;
   const bestDefense = [...standings].sort((a, b) => a.gc - b.gc || b.dg - a.dg)[0] || null;
   const topScorer = goalRows[0] || null;
@@ -1545,9 +1791,8 @@ function downloadMatchImage(state, tournament, match){
   drawShareBackground(ctx, "RESULTADO DEL PARTIDO", `${tournament.name} · ${match.round}`);
   const home = getUser(state, match.homeUserId);
   const away = getUser(state, match.awayUserId);
-  const freeTeams = isFreeTeamTournament(tournament);
-  const homeTeam = getTeam(state, homeTeamId || match.homeTeamId);
-  const awayTeam = getTeam(state, awayTeamId || match.awayTeamId);
+  const homeTeam = getTeam(state, getMatchTeamId(tournament, match, "home"));
+  const awayTeam = getTeam(state, getMatchTeamId(tournament, match, "away"));
   ctx.fillStyle = "#ffffff";
   ctx.font = "900 48px Arial";
   ctx.fillText(`${home.alias}`, 100, 330);
@@ -1572,6 +1817,11 @@ function downloadMatchImage(state, tournament, match){
   ctx.font = "600 21px Arial";
   if (!goals.length) ctx.fillText("Sin goles registrados por jugador.", 100, 505);
   goals.forEach((line, i) => ctx.fillText(line, 100, 505 + i * 28));
+  if (match.penaltyWinnerUserId) {
+    ctx.fillStyle = "#ffd166";
+    ctx.font = "800 24px Arial";
+    ctx.fillText(`Ganador por penales: ${getUser(state, match.penaltyWinnerUserId).alias}`, 100, 625);
+  }
   triggerCanvasDownload(canvas, `resultado-${tournament.name}-${home.alias}-vs-${away.alias}`);
 }
 
@@ -1591,7 +1841,7 @@ function buildTournamentHistory(state, tournament){
   const playedMatches = (tournament.matches || []).filter(matchPlayed);
   const biggestWin = [...playedMatches].sort((a, b) => Math.abs(Number(b.homeGoals) - Number(b.awayGoals)) - Math.abs(Number(a.homeGoals) - Number(a.awayGoals)))[0];
   const highestScoring = [...playedMatches].sort((a, b) => (Number(b.homeGoals) + Number(b.awayGoals)) - (Number(a.homeGoals) + Number(a.awayGoals)))[0];
-  const championRow = standings[0] || null;
+  const championRow = getTournamentChampionRow(state, tournament, standings);
   const saved = tournament.historySummary || null;
   const savedChampionUser = saved?.championUserId ? getUser(state, saved.championUserId) : null;
   const savedChampionTeam = saved?.championTeamId ? getTeam(state, saved.championTeamId) : null;
@@ -1599,7 +1849,7 @@ function buildTournamentHistory(state, tournament){
   return {
     champion: savedChampionUser?.alias || (tournament.championUserId ? getUser(state, tournament.championUserId).alias : championRow ? getUser(state, championRow.userId).alias : "Sin definir"),
     championTeam: savedChampionTeam?.short || (tournament.championTeamId ? getTeam(state, tournament.championTeamId).short : championRow ? getTeam(state, championRow.teamId).short : "Sin equipo"),
-    runnerUp: savedRunnerUpUser?.alias || (standings[1] ? getUser(state, standings[1].userId).alias : "Sin datos"),
+    runnerUp: savedRunnerUpUser?.alias || (getTournamentRunnerUpRow(state, tournament, standings) ? getUser(state, getTournamentRunnerUpRow(state, tournament, standings).userId).alias : "Sin datos"),
     topScorer: saved?.topScorerName ? `${saved.topScorerName} (${saved.topScorerGoals})` : goalRows[0] ? `${goalRows[0].playerName} (${goalRows[0].goals})` : "Sin datos",
     topAssist: saved?.topAssistName ? `${saved.topAssistName} (${saved.topAssistCount})` : assistRows[0] ? `${assistRows[0].playerName} (${assistRows[0].assists})` : "Sin datos",
     bestPlayer: saved?.bestPlayerName ? `${saved.bestPlayerName} (${saved.bestPlayerContributions} G+A)` : playerRows[0] ? `${playerRows[0].playerName} (${playerRows[0].contributions} G+A)` : "Sin datos",
@@ -2120,7 +2370,7 @@ function App(){
     try {
       const { data: tournaments, error } = await supabaseClient
         .from("tournaments")
-        .select("id, name, description, format, visibility, status, allow_duplicate_teams, team_selection_mode, fixture_mode, invite_code, season, creator_id, champion_user_id, champion_team_id, created_at")
+        .select("id, name, description, format, visibility, status, allow_duplicate_teams, team_selection_mode, fixture_mode, invite_code, season, creator_id, champion_user_id, champion_team_id, third_place_enabled, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
 
@@ -2137,7 +2387,7 @@ function App(){
           supabaseClient.from("tournament_players").select("id, tournament_id, user_id, team_id, joined_by_code, joined_at").in("tournament_id", ids),
           supabaseClient.from("tournament_invitations").select("id, tournament_id, from_user_id, to_user_id, status, created_at, responded_at").in("tournament_id", ids),
           supabaseClient.from("tournament_join_requests").select("id, tournament_id, user_id, requested_team_id, status, requested_at, resolved_at, resolved_by, reason").in("tournament_id", ids),
-          supabaseClient.from("matches").select("id, tournament_id, round, home_user_id, away_user_id, home_team_id, away_team_id, home_goals, away_goals, proposed_home_goals, proposed_away_goals, result_status, proposed_by, confirmed_by, played_at, sort_order, created_at").in("tournament_id", ids).order("sort_order", { ascending: true }),
+          supabaseClient.from("matches").select("id, tournament_id, round, home_user_id, away_user_id, home_team_id, away_team_id, home_goals, away_goals, proposed_home_goals, proposed_away_goals, proposed_penalty_winner_user_id, result_status, proposed_by, confirmed_by, played_at, sort_order, stage, bracket_round, bracket_slot, next_match_id, next_side, loser_next_match_id, loser_next_side, winner_user_id, penalty_winner_user_id, created_at").in("tournament_id", ids).order("sort_order", { ascending: true }),
           supabaseClient.from("tournament_activity").select("id, tournament_id, type, message, user_id, created_at").in("tournament_id", ids).order("created_at", { ascending: false })
         ]);
         if (participantRes.error) throw participantRes.error;
@@ -2247,6 +2497,7 @@ function App(){
         p_allow_duplicate_teams: payload.teamSelectionMode === "fixed" ? Boolean(payload.allowDuplicateTeams) : true,
         p_team_selection_mode: payload.teamSelectionMode || "fixed",
         p_fixture_mode: payload.fixtureMode || "single_leg",
+        p_third_place_enabled: Boolean(payload.thirdPlaceEnabled),
         p_invite_code: payload.inviteCode,
         p_season: payload.season || "Temporada 2026",
         p_creator_team_id: payload.teamSelectionMode === "fixed" ? (payload.creatorTeamId || null) : null,
@@ -2332,12 +2583,47 @@ function App(){
     }
   }
 
+  async function advanceCloudPlayoff(tournament, matchId, patch = {}) {
+    if (!supabaseClient || !isKnockoutTournament(tournament)) return;
+    const match = (tournament?.matches || []).find((item) => item.id === matchId);
+    if (!match) return;
+    const source = {
+      ...match,
+      homeGoals: patch.homeGoals ?? match.homeGoals,
+      awayGoals: patch.awayGoals ?? match.awayGoals,
+      penaltyWinnerUserId: patch.penaltyWinnerUserId ?? match.penaltyWinnerUserId,
+      winnerUserId: patch.winnerUserId ?? match.winnerUserId
+    };
+    const winnerUserId = getMatchWinnerUserId(source);
+    const loserUserId = getMatchLoserUserId(source);
+    if (!winnerUserId) return;
+
+    const updates = [];
+    const makeSidePatch = (side, userId) => {
+      const userKey = side === "home" ? "home_user_id" : "away_user_id";
+      const teamKey = side === "home" ? "home_team_id" : "away_team_id";
+      return { [userKey]: userId, [teamKey]: getAdvancingTeamId(tournament, source, userId) };
+    };
+
+    if (source.nextMatchId && source.nextSide) {
+      updates.push(supabaseClient.from("matches").update(makeSidePatch(source.nextSide, winnerUserId)).eq("id", source.nextMatchId));
+    }
+    if (source.loserNextMatchId && source.loserNextSide && loserUserId) {
+      updates.push(supabaseClient.from("matches").update(makeSidePatch(source.loserNextSide, loserUserId)).eq("id", source.loserNextMatchId));
+    }
+    if (updates.length) {
+      const results = await Promise.all(updates);
+      const failed = results.find((res) => res.error);
+      if (failed?.error) throw failed.error;
+    }
+  }
+
   async function generateCloudFixture(tournament) {
     if (!supabaseClient || !cloudSession?.user?.id || !tournament?.id) return false;
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
-      const localMatches = roundRobin(tournament.participants || [], { freeTeams: isFreeTeamTournament(tournament), doubleLeg: isDoubleLegTournament(tournament) });
+      const localMatches = buildTournamentFixture(tournament, { uuidIds: true });
       const { error: deleteError } = await supabaseClient.from("matches").delete().eq("tournament_id", tournament.id);
       if (deleteError) throw deleteError;
       const matchRows = localMatches.map((match, index) => ({
@@ -2347,7 +2633,14 @@ function App(){
         away_user_id: match.awayUserId,
         home_team_id: match.homeTeamId || null,
         away_team_id: match.awayTeamId || null,
-        sort_order: index + 1
+        sort_order: match.sortOrder || index + 1,
+        stage: match.stage || null,
+        bracket_round: match.bracketRound || null,
+        bracket_slot: match.bracketSlot || null,
+        next_match_id: match.nextMatchId || null,
+        next_side: match.nextSide || null,
+        loser_next_match_id: match.loserNextMatchId || null,
+        loser_next_side: match.loserNextSide || null
       }));
       if (matchRows.length) {
         const { error: insertError } = await supabaseClient.from("matches").insert(matchRows);
@@ -2373,6 +2666,13 @@ function App(){
     if (!match) return false;
     const hg = Number(homeGoals);
     const ag = Number(awayGoals);
+    const penaltyWinnerUserId = teamSelection.penaltyWinnerUserId || null;
+    const validationMessage = validatePlayoffResult(tournament, match, hg, ag, penaltyWinnerUserId);
+    if (validationMessage) {
+      setCloudTournamentsNotice(validationMessage);
+      return false;
+    }
+    const winnerUserId = hg > ag ? match.homeUserId : ag > hg ? match.awayUserId : penaltyWinnerUserId;
     const isAdmin = tournament.creatorId === cloudSession.user.id;
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
@@ -2382,10 +2682,11 @@ function App(){
         away_team_id: isFreeTeamTournament(tournament) ? (teamSelection.awayTeamId || match.awayTeamId || null) : (match.awayTeamId || null)
       };
       const payload = isAdmin
-        ? { ...basePayload, home_goals: hg, away_goals: ag, proposed_home_goals: null, proposed_away_goals: null, result_status: "confirmed", proposed_by: null, confirmed_by: cloudSession.user.id, played_at: today() }
-        : { ...basePayload, proposed_home_goals: hg, proposed_away_goals: ag, result_status: "pending_confirmation", proposed_by: cloudSession.user.id };
+        ? { ...basePayload, home_goals: hg, away_goals: ag, proposed_home_goals: null, proposed_away_goals: null, proposed_penalty_winner_user_id: null, result_status: "confirmed", proposed_by: null, confirmed_by: cloudSession.user.id, played_at: today(), penalty_winner_user_id: hg === ag ? penaltyWinnerUserId : null, winner_user_id: winnerUserId || null }
+        : { ...basePayload, proposed_home_goals: hg, proposed_away_goals: ag, proposed_penalty_winner_user_id: hg === ag ? penaltyWinnerUserId : null, result_status: "pending_confirmation", proposed_by: cloudSession.user.id };
       const { error } = await supabaseClient.from("matches").update(payload).eq("id", matchId);
       if (error) throw error;
+      if (isAdmin) await advanceCloudPlayoff(tournament, matchId, { homeGoals: hg, awayGoals: ag, penaltyWinnerUserId, winnerUserId });
       await supabaseClient.from("tournaments").update({ status: "active", champion_user_id: null, champion_team_id: null }).eq("id", tournament.id);
       await insertCloudActivity(tournament.id, isAdmin ? "result" : "result_proposed", isAdmin ? `Resultado cargado: ${hg}-${ag}.` : `Resultado propuesto: ${hg}-${ag}.`);
       await refreshCloudTournaments({ silent: true });
@@ -2413,6 +2714,9 @@ function App(){
         proposed_away_goals: null,
         result_status: null,
         proposed_by: null,
+        proposed_penalty_winner_user_id: null,
+        penalty_winner_user_id: null,
+        winner_user_id: null,
         confirmed_by: null,
         played_at: null
       }).eq("id", matchId);
@@ -2437,16 +2741,26 @@ function App(){
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
+      const hg = Number(match.resultProposal.homeGoals);
+      const ag = Number(match.resultProposal.awayGoals);
+      const penaltyWinnerUserId = match.resultProposal.penaltyWinnerUserId || match.proposedPenaltyWinnerUserId || null;
+      const validationMessage = validatePlayoffResult(tournament, match, hg, ag, penaltyWinnerUserId);
+      if (validationMessage) throw new Error(validationMessage);
+      const winnerUserId = hg > ag ? match.homeUserId : ag > hg ? match.awayUserId : penaltyWinnerUserId;
       const { error } = await supabaseClient.from("matches").update({
-        home_goals: Number(match.resultProposal.homeGoals),
-        away_goals: Number(match.resultProposal.awayGoals),
+        home_goals: hg,
+        away_goals: ag,
         proposed_home_goals: null,
         proposed_away_goals: null,
+        proposed_penalty_winner_user_id: null,
+        penalty_winner_user_id: hg === ag ? penaltyWinnerUserId : null,
+        winner_user_id: winnerUserId || null,
         result_status: "confirmed",
         confirmed_by: cloudSession.user.id,
         played_at: today()
       }).eq("id", matchId);
       if (error) throw error;
+      await advanceCloudPlayoff(tournament, matchId, { homeGoals: hg, awayGoals: ag, penaltyWinnerUserId, winnerUserId });
       await insertCloudActivity(tournament.id, "result_confirmed", "Se confirmó un resultado.");
       await refreshCloudTournaments({ silent: true });
       setCloudTournamentsNotice("Resultado confirmado.");
@@ -3203,6 +3517,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
   const [allowDuplicateTeams, setAllowDuplicateTeams] = useState(false);
   const [teamSelectionMode, setTeamSelectionMode] = useState("fixed");
   const [fixtureMode, setFixtureMode] = useState("single_leg");
+  const [thirdPlaceEnabled, setThirdPlaceEnabled] = useState(true);
   const [creatorTeamId, setCreatorTeamId] = useState(state.teams[0]?.id || "");
   const [inviteIds, setInviteIds] = useState([]);
 
@@ -3228,6 +3543,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       allowDuplicateTeams,
       teamSelectionMode,
       fixtureMode,
+      thirdPlaceEnabled: format === "knockout" ? thirdPlaceEnabled : false,
       creatorTeamId,
       inviteIds
     };
@@ -3240,6 +3556,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
         setDescription("");
         setInviteIds([]);
         setFixtureMode("single_leg");
+        setThirdPlaceEnabled(true);
         setStep(1);
         onDone?.();
       }
@@ -3258,6 +3575,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       allowDuplicateTeams: teamSelectionMode === "fixed" ? allowDuplicateTeams : true,
       teamSelectionMode,
       fixtureMode,
+      thirdPlaceEnabled: format === "knockout" ? thirdPlaceEnabled : false,
       creatorId: currentUser.id,
       createdAt: today(),
       participants: [{ userId: currentUser.id, teamId: teamSelectionMode === "fixed" ? creatorTeamId : null, joinedAt: today() }],
@@ -3289,6 +3607,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
     setDescription("");
     setInviteIds([]);
     setFixtureMode("single_leg");
+    setThirdPlaceEnabled(true);
     setStep(1);
     onDone?.();
   }
@@ -3333,6 +3652,13 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
               <span>Cada cruce genera dos partidos, alternando local y visita.</span>
             </button>
           </div>
+          {format === "knockout" && (
+            <div className="info-note playoff-note">
+              <strong>Definición de eliminación directa</strong>
+              <span>Si un partido termina empatado, se elegirá ganador por penales. Los penales no se registran como goles normales.</span>
+              <label className="check-line block"><input type="checkbox" checked={thirdPlaceEnabled} onChange={(e) => setThirdPlaceEnabled(e.target.checked)} /> Incluir partido por tercer lugar</label>
+            </div>
+          )}
           <label>Descripción<textarea className="short-textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Reglas, contexto o nombre de temporada" /></label>
           <div className="actions-row"><button className="primary" onClick={() => setStep(2)}>Continuar</button></div>
         </div>
@@ -3364,7 +3690,8 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
               <span>Visibilidad <strong>{visibility === "private" ? "Privado" : "Público"}</strong></span>
               <span>Temporada <strong>{season || state.currentSeason}</strong></span>
               <span>Modo equipos <strong>{formatTeamSelectionMode(teamSelectionMode)}</strong></span>
-              <span>Partidos <strong>{FIXTURE_MODE_LABELS[fixtureMode]}</strong></span>
+              <span>Partidos <strong>{format === "knockout" ? "Llave eliminatoria" : FIXTURE_MODE_LABELS[fixtureMode]}</strong></span>
+              {format === "knockout" && <span>Tercer lugar <strong>{thirdPlaceEnabled ? "Sí" : "No"}</strong></span>}
               <span>Tu equipo <strong>{teamSelectionMode === "fixed" ? getTeam(state, creatorTeamId).short : "Libre por partido"}</strong></span>
               <span>Invitados <strong>{inviteIds.length}</strong></span>
             </div>
@@ -3410,6 +3737,7 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
 
   async function generateFixture(){
     if (tournament.participants.length < 2) return alert("Necesitas al menos 2 participantes confirmados.");
+    if (isKnockoutTournament(tournament) && !isPowerOfTwo(tournament.participants.length)) return alert("La eliminación directa necesita 2, 4, 8 o 16 participantes confirmados.");
     if (!isFreeTeamTournament(tournament)) {
       const uniqueTeams = new Set(tournament.participants.map((p) => p.teamId));
       if (!tournament.allowDuplicateTeams && uniqueTeams.size !== tournament.participants.length) return alert("Hay equipos repetidos. Ajusta los equipos antes de generar fixture.");
@@ -3421,7 +3749,7 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
     }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
-      t.matches = roundRobin(t.participants, { freeTeams: isFreeTeamTournament(t), doubleLeg: isDoubleLegTournament(t) });
+      t.matches = buildTournamentFixture(t);
       t.status = "active";
       t.championUserId = null;
       t.championTeamId = null;
@@ -3467,6 +3795,9 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
     const ag = Number(awayGoals);
     if (!scoreIsValid(hg, ag)) return alert("Ingresa un marcador válido entre 0 y 99, sin decimales.");
     if (isFreeTeamTournament(tournament) && (!teamSelection.homeTeamId || !teamSelection.awayTeamId)) return alert("Selecciona equipo local y visitante para este partido.");
+    const currentMatch = tournament.matches.find((item) => item.id === matchId);
+    const playoffValidation = validatePlayoffResult(tournament, currentMatch, hg, ag, teamSelection.penaltyWinnerUserId || null);
+    if (playoffValidation) return alert(playoffValidation);
     if (["closed", "paused"].includes(tournament.status)) return alert("No se puede modificar un torneo pausado o finalizado.");
     if (isCloudTournament && onCloudSubmitResult) {
       await onCloudSubmitResult(tournament, matchId, hg, ag, teamSelection);
@@ -3483,13 +3814,16 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
       if (isAdmin) {
         m.homeGoals = hg;
         m.awayGoals = ag;
+        m.penaltyWinnerUserId = hg === ag ? (teamSelection.penaltyWinnerUserId || null) : null;
+        m.winnerUserId = hg > ag ? m.homeUserId : ag > hg ? m.awayUserId : m.penaltyWinnerUserId;
         m.resultStatus = "confirmed";
         m.resultProposal = null;
         m.playedAt = today();
+        applyPlayoffAdvancement(t, matchId);
         addActivity(t, "result", `${getUser(draft, m.homeUserId).alias} ${hg}-${ag} ${getUser(draft, m.awayUserId).alias} fue cargado/corregido por el creador.`, currentUser.id);
       } else {
         if (![m.homeUserId, m.awayUserId].includes(currentUser.id)) return draft;
-        m.resultProposal = { homeGoals: hg, awayGoals: ag, proposedBy: currentUser.id, status: "pending", createdAt: today() };
+        m.resultProposal = { homeGoals: hg, awayGoals: ag, penaltyWinnerUserId: hg === ag ? (teamSelection.penaltyWinnerUserId || null) : null, proposedBy: currentUser.id, status: "pending", createdAt: today() };
         m.resultStatus = "pending_confirmation";
         addActivity(t, "result_proposed", `${currentUser.alias} propuso resultado ${hg}-${ag}.`, currentUser.id);
       }
@@ -3525,6 +3859,8 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
           m.awayGoals = null;
           m.resultStatus = null;
           m.resultProposal = null;
+          m.penaltyWinnerUserId = null;
+          m.winnerUserId = null;
           m.confirmedBy = null;
           m.playedAt = null;
           m.goalEvents = [];
@@ -3554,10 +3890,13 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
       if (!isOpponent && !isAdmin) return draft;
       m.homeGoals = Number(m.resultProposal.homeGoals);
       m.awayGoals = Number(m.resultProposal.awayGoals);
+      m.penaltyWinnerUserId = m.homeGoals === m.awayGoals ? (m.resultProposal.penaltyWinnerUserId || null) : null;
+      m.winnerUserId = m.homeGoals > m.awayGoals ? m.homeUserId : m.awayGoals > m.homeGoals ? m.awayUserId : m.penaltyWinnerUserId;
       m.resultStatus = "confirmed";
       m.confirmedBy = currentUser.id;
       m.resultProposal = null;
       m.playedAt = today();
+      applyPlayoffAdvancement(t, matchId);
       t.championUserId = null;
       t.championTeamId = null;
       addActivity(t, "result_confirmed", `${currentUser.alias} confirmó un resultado.`, currentUser.id);
@@ -3589,13 +3928,13 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
     if (!isCreator) return alert("Solo el creador puede finalizar este torneo.");
     const blockReason = getFinishBlockReason(tournament);
     if (blockReason) return alert(blockReason);
-    const champion = standings[0];
+    const champion = getTournamentChampionRow(state, tournament, standings);
     if (!champion) return alert("No hay campeón calculable todavía.");
     setShowFinishSummary(true);
   }
 
   async function confirmCloseTournament(){
-    const champion = standings[0];
+    const champion = getTournamentChampionRow(state, tournament, standings);
     if (!champion) return alert("No hay campeón calculable todavía.");
     if (isCloudTournament && onCloudUpdateTournamentStatus) {
       const ok = await onCloudUpdateTournamentStatus(tournament.id, "closed", { champion_user_id: champion.userId, champion_team_id: champion.teamId });
@@ -4189,19 +4528,22 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
   const [awayGoals, setAwayGoals] = useState(match.resultProposal?.awayGoals ?? match.awayGoals ?? "");
   const [homeTeamId, setHomeTeamId] = useState(getMatchTeamId(tournament, match, "home") || "");
   const [awayTeamId, setAwayTeamId] = useState(getMatchTeamId(tournament, match, "away") || "");
+  const [penaltyWinnerUserId, setPenaltyWinnerUserId] = useState(match.resultProposal?.penaltyWinnerUserId || match.penaltyWinnerUserId || "");
 
   useEffect(() => {
     setHomeGoals(match.resultProposal?.homeGoals ?? match.homeGoals ?? "");
     setAwayGoals(match.resultProposal?.awayGoals ?? match.awayGoals ?? "");
     setHomeTeamId(getMatchTeamId(tournament, match, "home") || "");
     setAwayTeamId(getMatchTeamId(tournament, match, "away") || "");
-  }, [match.id, match.homeGoals, match.awayGoals, match.resultProposal?.homeGoals, match.resultProposal?.awayGoals, match.resultStatus, match.homeTeamId, match.awayTeamId, tournament?.id]);
+    setPenaltyWinnerUserId(match.resultProposal?.penaltyWinnerUserId || match.penaltyWinnerUserId || "");
+  }, [match.id, match.homeGoals, match.awayGoals, match.resultProposal?.homeGoals, match.resultProposal?.awayGoals, match.resultProposal?.penaltyWinnerUserId, match.penaltyWinnerUserId, match.resultStatus, match.homeTeamId, match.awayTeamId, tournament?.id]);
 
   const isParticipant = [match.homeUserId, match.awayUserId].includes(currentUser.id);
   const isCreator = tournament.creatorId === currentUser.id;
   const proposer = match.resultProposal ? getUser(state, match.resultProposal.proposedBy) : null;
   const canRespond = match.resultProposal?.status === "pending" && (isCreator || (isParticipant && match.resultProposal.proposedBy !== currentUser.id));
-  const canSubmit = isCreator || isParticipant;
+  const readyForResult = !isKnockoutTournament(tournament) || playoffMatchReady(match);
+  const canSubmit = (isCreator || isParticipant) && readyForResult;
   const canEditGoals = canSubmit && tournament.status !== "closed" && tournament.status !== "paused";
   const validationIssues = matchGoalIssues(match);
   const submitLabel = isCreator
@@ -4210,6 +4552,8 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
   const freeTeams = isFreeTeamTournament(tournament);
   const homeTeam = getTeam(state, homeTeamId || match.homeTeamId);
   const awayTeam = getTeam(state, awayTeamId || match.awayTeamId);
+  const playoffTie = isKnockoutTournament(tournament) && homeGoals !== "" && awayGoals !== "" && Number(homeGoals) === Number(awayGoals);
+  const playoffWinner = match.penaltyWinnerUserId ? getUser(state, match.penaltyWinnerUserId) : null;
 
   return (
     <div className={`match-card ${match.resultStatus || ""}`}>
@@ -4221,6 +4565,21 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
         <input type="number" min="0" value={awayGoals} onChange={(e) => setAwayGoals(e.target.value)} disabled={!canSubmit || tournament.status === "closed" || tournament.status === "paused"} />
         <span className="match-side away"><TeamLogo team={awayTeam} size="sm" /><span><b>{getUser(state, match.awayUserId).alias}</b><em>{awayTeam.short}</em></span></span>
       </div>
+
+      {!readyForResult && <p className="hint">Este partido espera clasificados de una ronda anterior.</p>}
+      {isKnockoutTournament(tournament) && matchPlayed(match) && match.penaltyWinnerUserId && <p className="hint">Ganador por penales: <strong>{playoffWinner?.alias || "Definido"}</strong>. Los penales no cuentan como goles normales.</p>}
+      {playoffTie && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
+        <div className="penalty-box">
+          <label>Ganador por penales
+            <select value={penaltyWinnerUserId} onChange={(e) => setPenaltyWinnerUserId(e.target.value)}>
+              <option value="">Seleccionar ganador</option>
+              <option value={match.homeUserId}>{getUser(state, match.homeUserId).alias}</option>
+              <option value={match.awayUserId}>{getUser(state, match.awayUserId).alias}</option>
+            </select>
+          </label>
+          <small>Solo para definición de playoff. No se registra como gol, penal normal ni evento adicional.</small>
+        </div>
+      )}
       {freeTeams && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
         <div className="match-team-selector-grid">
           <label>Equipo local<select value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)}><option value="">Seleccionar equipo</option>{state.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
@@ -4235,7 +4594,7 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
       </div>
       {match.resultProposal && (
         <div className="proposal-box">
-          <span>{match.resultProposal.status === "rejected" ? "Rechazado" : "Propuesto"} por <strong>{proposer?.alias || "Usuario"}</strong>: {match.resultProposal.homeGoals}-{match.resultProposal.awayGoals}</span>
+          <span>{match.resultProposal.status === "rejected" ? "Rechazado" : "Propuesto"} por <strong>{proposer?.alias || "Usuario"}</strong>: {match.resultProposal.homeGoals}-{match.resultProposal.awayGoals}{match.resultProposal.penaltyWinnerUserId ? ` · penales: ${getUser(state, match.resultProposal.penaltyWinnerUserId).alias}` : ""}</span>
           {canRespond && <div className="actions-row compact"><button className="primary small" onClick={() => onConfirm(match.id)}>Confirmar</button><button className="ghost small" onClick={() => onReject(match.id)}>Rechazar</button></div>}
         </div>
       )}
@@ -4250,7 +4609,7 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
         <div className="actions-row compact right">
           {(matchPlayed(match) || match.resultProposal || (match.goalEvents || []).length > 0) && <button className="ghost small" onClick={() => onClearResult(match.id)}>Marcar pendiente</button>}
           {matchPlayed(match) && <button className="ghost small" onClick={() => onDownloadMatch?.(match)}>Imagen resultado</button>}
-          <button className="secondary small" onClick={() => onSubmit(match.id, homeGoals, awayGoals, { homeTeamId, awayTeamId })}>{submitLabel}</button>
+          <button className="secondary small" onClick={() => onSubmit(match.id, homeGoals, awayGoals, { homeTeamId, awayTeamId, penaltyWinnerUserId })}>{submitLabel}</button>
         </div>
       )}
       <GoalEventsEditor state={state} tournament={tournament} match={match} canEdit={canEditGoals} onAddGoal={onAddGoal} onRemoveGoal={onRemoveGoal} currentUser={currentUser} />

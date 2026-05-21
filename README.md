@@ -28,3 +28,8 @@ Revisa `docs/VERCEL_DEPLOY.md`.
 La carpeta `supabase/` incluye esquema, políticas, equipos oficiales, plantillas y vistas de ranking para una migración posterior.
 
 Regla definida: cada usuario solo debe ver torneos creados por él, torneos donde participa, torneos donde fue invitado o torneos donde solicitó acceso. Los rankings globales pueden usar datos agregados sin exponer salas privadas.
+
+
+## Actualización 1.7
+
+Antes de usar playoffs en Supabase, ejecuta `supabase/16_playoffs_1_7.sql`. La eliminación directa requiere 2, 4, 8 o 16 participantes. Si un partido de playoff termina empatado, debes elegir ganador por penales; esos penales no cuentan como goles normales.

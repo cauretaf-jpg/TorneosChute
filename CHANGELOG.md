@@ -1,3 +1,13 @@
+
+## 1.7.0 - Playoffs y definiciones
+
+- Agrega eliminación directa con llave de playoff.
+- Permite activar partido por tercer lugar.
+- Los empates de playoff exigen ganador por penales.
+- Los penales solo definen la llave; no se registran como goles normales.
+- La generación de fixture distingue liga/ida-vuelta de eliminación directa.
+- Agrega SQL `supabase/16_playoffs_1_7.sql`.
+
 # Changelog
 
 ## 1.6.0 · Historial competitivo real
