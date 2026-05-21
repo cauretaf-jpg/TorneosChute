@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3
+
+- Agrega modo de fixture: solo ida o ida y vuelta.
+- En ida y vuelta, cada cruce genera dos partidos alternando local y visita.
+- Guarda `fixture_mode` en Supabase mediante `13_fixture_mode_1_4_3.sql`.
+- Mantiene compatibilidad con equipo fijo y equipo libre por partido.
+
 ## 1.4.2
 
 - Corrige la creación de torneos en Supabase con una función RPC segura.

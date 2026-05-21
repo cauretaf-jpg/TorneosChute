@@ -67,6 +67,7 @@ function cloudTournamentToLocal(row, participants = [], joinRequests = [], match
     status: row.status || "preparing",
     allowDuplicateTeams: Boolean(row.allow_duplicate_teams),
     teamSelectionMode: row.team_selection_mode || "fixed",
+    fixtureMode: row.fixture_mode || "single_leg",
     inviteCode: row.invite_code || makeInviteCode(row.name || "CHUTE"),
     season: row.season || CURRENT_SEASON,
     creatorId: row.creator_id,
@@ -372,6 +373,11 @@ const TEAM_SELECTION_LABELS = {
   free_per_match: "Equipo libre por partido"
 };
 
+const FIXTURE_MODE_LABELS = {
+  single_leg: "Solo ida",
+  double_leg: "Ida y vuelta"
+};
+
 const STATUS_LABELS = {
   preparing: "En preparación",
   active: "En curso",
@@ -433,6 +439,7 @@ const seedState = () => {
     status: "active",
     allowDuplicateTeams: false,
     teamSelectionMode: "fixed",
+    fixtureMode: "single_leg",
     inviteCode: "APERT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -457,6 +464,7 @@ const seedState = () => {
     status: "preparing",
     allowDuplicateTeams: false,
     teamSelectionMode: "fixed",
+    fixtureMode: "single_leg",
     inviteCode: "INVIT-2026",
     season: CURRENT_SEASON,
     creatorId: "u_carlos",
@@ -532,6 +540,7 @@ function normalizeState(parsed){
       status: t.matches?.length ? "active" : "preparing",
       allowDuplicateTeams: false,
       teamSelectionMode: t.teamSelectionMode || t.team_selection_mode || "fixed",
+      fixtureMode: t.fixtureMode || t.fixture_mode || "single_leg",
       inviteCode: t.inviteCode || makeInviteCode(t.name || "CHUTE"),
       season: t.season || CURRENT_SEASON,
       championUserId: null,
@@ -567,38 +576,45 @@ function roundRobin(participants, options = {}){
   const players = participants.map((p) => ({ ...p }));
   if (players.length % 2 !== 0) players.push({ userId: null, teamId: null, bye: true });
 
-  const rounds = [];
+  const firstLeg = [];
+  const secondLeg = [];
   const totalRounds = players.length - 1;
   const half = players.length / 2;
+  const doubleLeg = Boolean(options.doubleLeg || options.roundTrip || options.fixtureMode === "double_leg");
   let rotation = [...players];
 
+  function makeMatch(home, away, roundLabel){
+    return {
+      id: uid("m"),
+      round: roundLabel,
+      homeUserId: home.userId,
+      awayUserId: away.userId,
+      homeTeamId: options.freeTeams ? null : home.teamId,
+      awayTeamId: options.freeTeams ? null : away.teamId,
+      homeGoals: null,
+      awayGoals: null,
+      resultStatus: null,
+      resultProposal: null,
+      goalEvents: [],
+      playedAt: null
+    };
+  }
+
   for (let round = 1; round <= totalRounds; round++) {
-    const matches = [];
     for (let i = 0; i < half; i++) {
       const a = rotation[i];
       const b = rotation[rotation.length - 1 - i];
       if (!a.bye && !b.bye) {
         const swap = round % 2 === 0;
-        matches.push({
-          id: uid("m"),
-          round: `Fecha ${round}`,
-          homeUserId: swap ? b.userId : a.userId,
-          awayUserId: swap ? a.userId : b.userId,
-          homeTeamId: options.freeTeams ? null : (swap ? b.teamId : a.teamId),
-          awayTeamId: options.freeTeams ? null : (swap ? a.teamId : b.teamId),
-          homeGoals: null,
-          awayGoals: null,
-          resultStatus: null,
-          resultProposal: null,
-          goalEvents: [],
-          playedAt: null
-        });
+        const firstHome = swap ? b : a;
+        const firstAway = swap ? a : b;
+        firstLeg.push(makeMatch(firstHome, firstAway, doubleLeg ? `Fecha ${round} · Ida` : `Fecha ${round}`));
+        if (doubleLeg) secondLeg.push(makeMatch(firstAway, firstHome, `Fecha ${totalRounds + round} · Vuelta`));
       }
     }
-    rounds.push(...matches);
     rotation = [rotation[0], rotation[rotation.length - 1], ...rotation.slice(1, rotation.length - 1)];
   }
-  return rounds;
+  return doubleLeg ? [...firstLeg, ...secondLeg] : firstLeg;
 }
 
 function matchPlayed(match){
@@ -704,6 +720,18 @@ function isFreeTeamTournament(tournament){
 
 function teamSelectionLabel(tournament){
   return TEAM_SELECTION_LABELS[getTeamSelectionMode(tournament)] || "Equipo fijo";
+}
+
+function getFixtureMode(tournament){
+  return tournament?.fixtureMode || tournament?.fixture_mode || "single_leg";
+}
+
+function isDoubleLegTournament(tournament){
+  return getFixtureMode(tournament) === "double_leg";
+}
+
+function fixtureModeLabel(tournament){
+  return FIXTURE_MODE_LABELS[getFixtureMode(tournament)] || FIXTURE_MODE_LABELS.single_leg;
 }
 
 function getParticipantTeamId(tournament, userId){
@@ -1943,7 +1971,7 @@ function App(){
     try {
       const { data: tournaments, error } = await supabaseClient
         .from("tournaments")
-        .select("id, name, description, format, visibility, status, allow_duplicate_teams, team_selection_mode, invite_code, season, creator_id, champion_user_id, champion_team_id, created_at")
+        .select("id, name, description, format, visibility, status, allow_duplicate_teams, team_selection_mode, fixture_mode, invite_code, season, creator_id, champion_user_id, champion_team_id, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
 
@@ -2024,6 +2052,7 @@ function App(){
         p_visibility: payload.visibility,
         p_allow_duplicate_teams: payload.teamSelectionMode === "fixed" ? Boolean(payload.allowDuplicateTeams) : true,
         p_team_selection_mode: payload.teamSelectionMode || "fixed",
+        p_fixture_mode: payload.fixtureMode || "single_leg",
         p_invite_code: payload.inviteCode,
         p_season: payload.season || "Temporada 2026",
         p_creator_team_id: payload.teamSelectionMode === "fixed" ? (payload.creatorTeamId || null) : null,
@@ -2100,7 +2129,7 @@ function App(){
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
-      const localMatches = roundRobin(tournament.participants || [], { freeTeams: isFreeTeamTournament(tournament) });
+      const localMatches = roundRobin(tournament.participants || [], { freeTeams: isFreeTeamTournament(tournament), doubleLeg: isDoubleLegTournament(tournament) });
       const { error: deleteError } = await supabaseClient.from("matches").delete().eq("tournament_id", tournament.id);
       if (deleteError) throw deleteError;
       const matchRows = localMatches.map((match, index) => ({
@@ -2876,7 +2905,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
               const confirmed = t.participants.length;
               const pendingInvites = state.invitations.filter((i) => i.tournamentId === t.id && i.status === "pending").length;
               const access = tournamentAccessLabel(state, t, currentUser.id);
-              const meta = `${formatLabel(t.format)} · ${teamSelectionLabel(t)} · ${t.visibility === "private" ? "Privado" : "Público"} · ${t.season || state.currentSeason}`;
+              const meta = `${formatLabel(t.format)} · ${teamSelectionLabel(t)} · ${fixtureModeLabel(t)} · ${t.visibility === "private" ? "Privado" : "Público"} · ${t.season || state.currentSeason}`;
               return (
                 <button key={t.id} className={`tournament-card-button ${selectedTournament?.id === t.id ? "selected" : ""}`} onClick={() => setSelectedTournamentId(t.id)}>
                   <span className="tournament-card-main">
@@ -2965,6 +2994,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
   const [season, setSeason] = useState(state.currentSeason || CURRENT_SEASON);
   const [allowDuplicateTeams, setAllowDuplicateTeams] = useState(false);
   const [teamSelectionMode, setTeamSelectionMode] = useState("fixed");
+  const [fixtureMode, setFixtureMode] = useState("single_leg");
   const [creatorTeamId, setCreatorTeamId] = useState(state.teams[0]?.id || "");
   const [inviteIds, setInviteIds] = useState([]);
 
@@ -2989,6 +3019,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       inviteCode: makeInviteCode(clean),
       allowDuplicateTeams,
       teamSelectionMode,
+      fixtureMode,
       creatorTeamId,
       inviteIds
     };
@@ -3000,6 +3031,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
         setName("");
         setDescription("");
         setInviteIds([]);
+        setFixtureMode("single_leg");
         setStep(1);
         onDone?.();
       }
@@ -3017,6 +3049,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
       status: "preparing",
       allowDuplicateTeams: teamSelectionMode === "fixed" ? allowDuplicateTeams : true,
       teamSelectionMode,
+      fixtureMode,
       creatorId: currentUser.id,
       createdAt: today(),
       participants: [{ userId: currentUser.id, teamId: teamSelectionMode === "fixed" ? creatorTeamId : null, joinedAt: today() }],
@@ -3047,6 +3080,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
     setName("");
     setDescription("");
     setInviteIds([]);
+    setFixtureMode("single_leg");
     setStep(1);
     onDone?.();
   }
@@ -3081,6 +3115,16 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
               <span>Los usuarios pueden usar equipos distintos en cada fecha o partido.</span>
             </button>
           </div>
+          <div className="mode-choice-grid fixture-mode-grid">
+            <button type="button" className={`mode-choice ${fixtureMode === "single_leg" ? "active" : ""}`} onClick={() => setFixtureMode("single_leg")}>
+              <strong>Solo ida</strong>
+              <span>Cada cruce entre usuarios se juega una sola vez.</span>
+            </button>
+            <button type="button" className={`mode-choice ${fixtureMode === "double_leg" ? "active" : ""}`} onClick={() => setFixtureMode("double_leg")}>
+              <strong>Ida y vuelta</strong>
+              <span>Cada cruce genera dos partidos, alternando local y visita.</span>
+            </button>
+          </div>
           <label>Descripción<textarea className="short-textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Reglas, contexto o nombre de temporada" /></label>
           <div className="actions-row"><button className="primary" onClick={() => setStep(2)}>Continuar</button></div>
         </div>
@@ -3112,6 +3156,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
               <span>Visibilidad <strong>{visibility === "private" ? "Privado" : "Público"}</strong></span>
               <span>Temporada <strong>{season || state.currentSeason}</strong></span>
               <span>Modo equipos <strong>{formatTeamSelectionMode(teamSelectionMode)}</strong></span>
+              <span>Partidos <strong>{FIXTURE_MODE_LABELS[fixtureMode]}</strong></span>
               <span>Tu equipo <strong>{teamSelectionMode === "fixed" ? getTeam(state, creatorTeamId).short : "Libre por partido"}</strong></span>
               <span>Invitados <strong>{inviteIds.length}</strong></span>
             </div>
@@ -3168,7 +3213,7 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
     }
     commit((draft) => {
       const t = draft.tournaments.find((item) => item.id === tournament.id);
-      t.matches = roundRobin(t.participants, { freeTeams: isFreeTeamTournament(t) });
+      t.matches = roundRobin(t.participants, { freeTeams: isFreeTeamTournament(t), doubleLeg: isDoubleLegTournament(t) });
       t.status = "active";
       t.championUserId = null;
       t.championTeamId = null;
@@ -3512,7 +3557,7 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
       <div className="section-head tournament-room-head">
         <div className="tournament-title-block">
           <h3>{tournament.name}</h3>
-          <p className="tournament-meta-line">{formatLabel(tournament.format)} · {teamSelectionLabel(tournament)} · {tournament.visibility === "private" ? "Privado" : "Público"} · {tournament.season || state.currentSeason}</p>
+          <p className="tournament-meta-line">{formatLabel(tournament.format)} · {teamSelectionLabel(tournament)} · {fixtureModeLabel(tournament)} · {tournament.visibility === "private" ? "Privado" : "Público"} · {tournament.season || state.currentSeason}</p>
           {tournament.description && <p>{tournament.description}</p>}
         </div>
         <span className={`status-pill ${tournament.status}`}>{STATUS_LABELS[tournament.status]}</span>
@@ -4871,6 +4916,10 @@ function formatLabel(format){
 
 function formatTeamSelectionMode(mode){
   return TEAM_SELECTION_LABELS[mode] || TEAM_SELECTION_LABELS.fixed;
+}
+
+function formatFixtureMode(mode){
+  return FIXTURE_MODE_LABELS[mode] || FIXTURE_MODE_LABELS.single_leg;
 }
 
 createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);
