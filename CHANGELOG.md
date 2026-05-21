@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 · Historial competitivo real
+
+- Agrega tabla `tournament_summaries` para guardar la ficha final de cada torneo en Supabase.
+- Agrega RPC `close_chute_tournament` para finalizar torneos y guardar campeón, subcampeón, mejor ataque, mejor defensa, goleador, asistidor y mejor futbolista por G+A.
+- La sala del torneo ahora puede mostrar historial persistente guardado en Supabase.
+- Mundo Chute incorpora un bloque de palmarés/historial competitivo.
+- Ranking agrega pestaña Palmarés.
+
 ## 1.5.0
 - Agrega rankings reales calculados desde Supabase.
 - Ranking global de usuarios desde partidos confirmados.

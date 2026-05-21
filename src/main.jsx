@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 const DATA_VERSION = 6;
 
 
@@ -57,7 +57,7 @@ function cloudFriendshipToLocal(row) {
   };
 }
 
-function cloudTournamentToLocal(row, participants = [], joinRequests = [], matches = [], activityRows = []) {
+function cloudTournamentToLocal(row, participants = [], joinRequests = [], matches = [], activityRows = [], summaryRow = null) {
   return {
     id: row.id,
     name: row.name,
@@ -78,6 +78,7 @@ function cloudTournamentToLocal(row, participants = [], joinRequests = [], match
     championTeamId: row.champion_team_id || null,
     joinRequests: joinRequests.map((r) => ({ id: r.id, userId: r.user_id, teamId: r.requested_team_id || null, status: r.status, requestedAt: (r.requested_at || new Date().toISOString()).slice(0, 10), resolvedAt: r.resolved_at || null, resolvedBy: r.resolved_by || null, reason: r.reason || "", cloud: true })),
     activity: activityRows.map(cloudActivityToLocal),
+    historySummary: summaryRow ? cloudTournamentSummaryToLocal(summaryRow) : null,
     cloud: true
   };
 }
@@ -148,6 +149,35 @@ function cloudActivityToLocal(row) {
     message: row.message,
     userId: row.user_id || null,
     createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
+    cloud: true
+  };
+}
+
+function cloudTournamentSummaryToLocal(row) {
+  if (!row?.tournament_id) return null;
+  return {
+    tournamentId: row.tournament_id,
+    championUserId: row.champion_user_id || null,
+    championTeamId: row.champion_team_id || null,
+    runnerUpUserId: row.runner_up_user_id || null,
+    runnerUpTeamId: row.runner_up_team_id || null,
+    bestAttackTeamId: row.best_attack_team_id || null,
+    bestDefenseTeamId: row.best_defense_team_id || null,
+    topScorerName: row.top_scorer_name || "",
+    topScorerTeamId: row.top_scorer_team_id || null,
+    topScorerGoals: Number(row.top_scorer_goals || 0),
+    topAssistName: row.top_assist_name || "",
+    topAssistTeamId: row.top_assist_team_id || null,
+    topAssistCount: Number(row.top_assist_count || 0),
+    bestPlayerName: row.best_player_name || "",
+    bestPlayerTeamId: row.best_player_team_id || null,
+    bestPlayerGoals: Number(row.best_player_goals || 0),
+    bestPlayerAssists: Number(row.best_player_assists || 0),
+    bestPlayerContributions: Number(row.best_player_contributions || 0),
+    playedMatches: Number(row.played_matches || 0),
+    totalGoals: Number(row.total_goals || 0),
+    finishedAt: row.finished_at || null,
+    summary: row.summary_json || {},
     cloud: true
   };
 }
@@ -1557,22 +1587,30 @@ function buildTournamentHistory(state, tournament){
   const standings = tournamentStandings(state, tournament);
   const goalRows = buildGoalRanking(state, tournament.id);
   const assistRows = buildAssistRanking(state, tournament.id);
+  const playerRows = buildPlayerContributionRanking(state, tournament.id);
   const playedMatches = (tournament.matches || []).filter(matchPlayed);
   const biggestWin = [...playedMatches].sort((a, b) => Math.abs(Number(b.homeGoals) - Number(b.awayGoals)) - Math.abs(Number(a.homeGoals) - Number(a.awayGoals)))[0];
   const highestScoring = [...playedMatches].sort((a, b) => (Number(b.homeGoals) + Number(b.awayGoals)) - (Number(a.homeGoals) + Number(a.awayGoals)))[0];
   const championRow = standings[0] || null;
+  const saved = tournament.historySummary || null;
+  const savedChampionUser = saved?.championUserId ? getUser(state, saved.championUserId) : null;
+  const savedChampionTeam = saved?.championTeamId ? getTeam(state, saved.championTeamId) : null;
+  const savedRunnerUpUser = saved?.runnerUpUserId ? getUser(state, saved.runnerUpUserId) : null;
   return {
-    champion: tournament.championUserId ? getUser(state, tournament.championUserId).alias : championRow ? getUser(state, championRow.userId).alias : "Sin definir",
-    championTeam: tournament.championTeamId ? getTeam(state, tournament.championTeamId).short : championRow ? getTeam(state, championRow.teamId).short : "Sin equipo",
-    runnerUp: standings[1] ? getUser(state, standings[1].userId).alias : "Sin datos",
-    topScorer: goalRows[0] ? `${goalRows[0].playerName} (${goalRows[0].goals})` : "Sin datos",
-    topAssist: assistRows[0] ? `${assistRows[0].playerName} (${assistRows[0].assists})` : "Sin datos",
-    bestAttack: standings[0] ? getTeam(state, [...standings].sort((a, b) => b.gf - a.gf)[0].teamId).short : "Sin datos",
-    bestDefense: standings[0] ? getTeam(state, [...standings].sort((a, b) => a.gc - b.gc)[0].teamId).short : "Sin datos",
-    biggestWin: biggestWin ? `${getUser(state, biggestWin.homeUserId).alias} ${biggestWin.homeGoals}-${biggestWin.awayGoals} ${getUser(state, biggestWin.awayUserId).alias}` : "Sin datos",
-    highestScoring: highestScoring ? `${highestScoring.homeGoals}-${highestScoring.awayGoals} · ${getUser(state, highestScoring.homeUserId).alias} vs ${getUser(state, highestScoring.awayUserId).alias}` : "Sin datos",
-    playedMatches: playedMatches.length,
-    totalGoals: playedMatches.reduce((sum, m) => sum + Number(m.homeGoals || 0) + Number(m.awayGoals || 0), 0)
+    champion: savedChampionUser?.alias || (tournament.championUserId ? getUser(state, tournament.championUserId).alias : championRow ? getUser(state, championRow.userId).alias : "Sin definir"),
+    championTeam: savedChampionTeam?.short || (tournament.championTeamId ? getTeam(state, tournament.championTeamId).short : championRow ? getTeam(state, championRow.teamId).short : "Sin equipo"),
+    runnerUp: savedRunnerUpUser?.alias || (standings[1] ? getUser(state, standings[1].userId).alias : "Sin datos"),
+    topScorer: saved?.topScorerName ? `${saved.topScorerName} (${saved.topScorerGoals})` : goalRows[0] ? `${goalRows[0].playerName} (${goalRows[0].goals})` : "Sin datos",
+    topAssist: saved?.topAssistName ? `${saved.topAssistName} (${saved.topAssistCount})` : assistRows[0] ? `${assistRows[0].playerName} (${assistRows[0].assists})` : "Sin datos",
+    bestPlayer: saved?.bestPlayerName ? `${saved.bestPlayerName} (${saved.bestPlayerContributions} G+A)` : playerRows[0] ? `${playerRows[0].playerName} (${playerRows[0].contributions} G+A)` : "Sin datos",
+    bestAttack: saved?.bestAttackTeamId ? getTeam(state, saved.bestAttackTeamId).short : standings[0] ? getTeam(state, [...standings].sort((a, b) => b.gf - a.gf)[0].teamId).short : "Sin datos",
+    bestDefense: saved?.bestDefenseTeamId ? getTeam(state, saved.bestDefenseTeamId).short : standings[0] ? getTeam(state, [...standings].sort((a, b) => a.gc - b.gc)[0].teamId).short : "Sin datos",
+    biggestWin: saved?.summary?.biggestWin || (biggestWin ? `${getUser(state, biggestWin.homeUserId).alias} ${biggestWin.homeGoals}-${biggestWin.awayGoals} ${getUser(state, biggestWin.awayUserId).alias}` : "Sin datos"),
+    highestScoring: saved?.summary?.highestScoring || (highestScoring ? `${highestScoring.homeGoals}-${highestScoring.awayGoals} · ${getUser(state, highestScoring.homeUserId).alias} vs ${getUser(state, highestScoring.awayUserId).alias}` : "Sin datos"),
+    playedMatches: saved?.playedMatches ?? playedMatches.length,
+    totalGoals: saved?.totalGoals ?? playedMatches.reduce((sum, m) => sum + Number(m.homeGoals || 0) + Number(m.awayGoals || 0), 0),
+    finishedAt: saved?.finishedAt || null,
+    saved: Boolean(saved)
   };
 }
 
@@ -2009,7 +2047,7 @@ function App(){
   }
 
 
-  function syncCloudTournamentsToState(tournamentRows = [], participantRows = [], invitationRows = [], joinRows = [], matchRows = [], goalRows = [], activityRows = [], profileRows = [], ownerId = null) {
+  function syncCloudTournamentsToState(tournamentRows = [], participantRows = [], invitationRows = [], joinRows = [], matchRows = [], goalRows = [], activityRows = [], summaryRows = [], profileRows = [], ownerId = null) {
     const participantsByTournament = new Map();
     participantRows.forEach((row) => {
       if (!participantsByTournament.has(row.tournament_id)) participantsByTournament.set(row.tournament_id, []);
@@ -2040,12 +2078,18 @@ function App(){
       activityByTournament.get(row.tournament_id).push(row);
     });
 
+    const summariesByTournament = new Map();
+    summaryRows.forEach((row) => {
+      if (row?.tournament_id) summariesByTournament.set(row.tournament_id, row);
+    });
+
     const localTournaments = tournamentRows.map((row) => cloudTournamentToLocal(
       row,
       participantsByTournament.get(row.id) || [],
       joinByTournament.get(row.id) || [],
       matchesByTournament.get(row.id) || [],
-      activityByTournament.get(row.id) || []
+      activityByTournament.get(row.id) || [],
+      summariesByTournament.get(row.id) || null
     ));
     const localInvitations = invitationRows.map(cloudInvitationToLocal);
     const localUsers = profileRows.map(cloudProfileToLocalUser).filter(Boolean);
@@ -2087,6 +2131,7 @@ function App(){
       let matches = [];
       let goalRows = [];
       let activityRows = [];
+      let summaryRows = [];
       if (ids.length) {
         const [participantRes, invitationRes, joinRes, matchRes, activityRes] = await Promise.all([
           supabaseClient.from("tournament_players").select("id, tournament_id, user_id, team_id, joined_by_code, joined_at").in("tournament_id", ids),
@@ -2115,6 +2160,13 @@ function App(){
           if (goalsError) throw goalsError;
           goalRows = goalsData || [];
         }
+
+        const { data: summariesData, error: summariesError } = await supabaseClient
+          .from("tournament_summaries")
+          .select("tournament_id, champion_user_id, champion_team_id, runner_up_user_id, runner_up_team_id, best_attack_team_id, best_defense_team_id, top_scorer_name, top_scorer_team_id, top_scorer_goals, top_assist_name, top_assist_team_id, top_assist_count, best_player_name, best_player_team_id, best_player_goals, best_player_assists, best_player_contributions, played_matches, total_goals, finished_at, summary_json, updated_at")
+          .in("tournament_id", ids);
+        if (summariesError && summariesError.code !== "42P01" && summariesError.code !== "PGRST205") throw summariesError;
+        summaryRows = summariesData || [];
       }
 
       const userIds = new Set([cloudSession.user.id]);
@@ -2136,7 +2188,7 @@ function App(){
         profiles = profileRows || [];
       }
 
-      syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, matches, goalRows, activityRows, profiles, cloudSession.user.id);
+      syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, matches, goalRows, activityRows, summaryRows, profiles, cloudSession.user.id);
       refreshCloudRankings({ silent: true });
       if (!options.silent) setCloudTournamentsNotice("Salas actualizadas.");
     } catch (error) {
@@ -2229,18 +2281,32 @@ function App(){
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
-      const payload = { status, ...extra };
-      if (status !== "closed") {
-        payload.champion_user_id = null;
-        payload.champion_team_id = null;
+      if (status === "closed") {
+        const { error } = await supabaseClient.rpc("close_chute_tournament", {
+          p_tournament_id: tournamentId,
+          p_champion_user_id: extra.champion_user_id || null,
+          p_champion_team_id: extra.champion_team_id || null
+        });
+        if (error) throw error;
+        setCloudTournamentsNotice("Torneo finalizado y guardado en el historial.");
+        await refreshCloudTournaments({ silent: true });
+        return true;
       }
+
+      const payload = { status, ...extra };
+      payload.champion_user_id = null;
+      payload.champion_team_id = null;
       const { error } = await supabaseClient.from("tournaments").update(payload).eq("id", tournamentId);
       if (error) throw error;
       await insertCloudActivity(tournamentId, "status", `El torneo cambió a estado: ${STATUS_LABELS[status] || status}.`);
       await refreshCloudTournaments({ silent: true });
       return true;
     } catch (error) {
-      setCloudTournamentsNotice(error?.message || "No se pudo actualizar el estado del torneo.");
+      const rawMessage = error?.message || "No se pudo actualizar el estado del torneo.";
+      const friendlyMessage = rawMessage.includes("close_chute_tournament") || rawMessage.includes("Could not find the function")
+        ? "Falta ejecutar el SQL de actualización 1.6 en Supabase."
+        : rawMessage;
+      setCloudTournamentsNotice(friendlyMessage);
       return false;
     } finally {
       setCloudTournamentsLoading(false);
@@ -3941,6 +4007,7 @@ function TournamentClosedOverview({ state, tournament, history, standings, score
         <span>Subcampeón <strong>{runnerUp ? getUser(state, runnerUp.userId).alias : history.runnerUp}</strong></span>
         <span>Goleador <strong>{scorerRows[0]?.playerName || history.topScorer}</strong></span>
         <span>Máximo asistidor <strong>{assistRows[0]?.playerName || history.topAssist}</strong></span>
+        <span>Mejor futbolista <strong>{history.bestPlayer}</strong></span>
         <span>Partidos jugados <strong>{history.playedMatches}</strong></span>
       </div>
     </section>
@@ -3955,6 +4022,7 @@ function TournamentHistoryPanel({ state, tournament, history, goalRows, assistRo
     { label: "Subcampeón", value: history.runnerUp },
     { label: "Goleador", value: history.topScorer },
     { label: "Máximo asistidor", value: history.topAssist },
+    { label: "Mejor futbolista", value: history.bestPlayer },
     { label: "Mejor ataque", value: history.bestAttack },
     { label: "Mejor defensa", value: history.bestDefense },
     { label: "Mayor goleada", value: history.biggestWin },
@@ -3983,6 +4051,7 @@ function TournamentHistoryPanel({ state, tournament, history, goalRows, assistRo
             <span>Goles <strong>{history.totalGoals}</strong></span>
             <span>Goleador <strong>{history.topScorer}</strong></span>
             <span>Asistidor <strong>{history.topAssist}</strong></span>
+            <span>Mejor futbolista <strong>{history.bestPlayer}</strong></span>
           </div>
         </div>
       )}
@@ -4528,8 +4597,39 @@ function MundoChute({ state, openTournament, setView }){
         <article className="card"><h3>Resumen competitivo</h3><div className="list spaced"><div className="list-row"><span><strong>{leader?.name || "Sin datos"}</strong><small>Líder global clasificado</small></span><b>{leader?.score || 0}</b></div><div className="list-row"><span><strong>{topTeam?.name || "Sin datos"}</strong><small>Equipo mejor posicionado</small></span><b>{topTeam?.score || 0}</b></div></div></article>
         <article className="card"><h3>Últimos campeones globales</h3><div className="list spaced">{latestChampions.map((t) => <div className="list-row" key={t.id}><span><strong>{getUser(state, t.championUserId).alias}</strong><small>{getTeam(state, t.championTeamId).short} · {t.season || state.currentSeason}</small></span><b>Campeón</b></div>)}{!latestChampions.length && <p className="empty">Aún no hay torneos cerrados con campeón.</p>}</div></article>
       </div>
+      <HistoryArchivePanel state={state} openTournament={openTournament} />
       <RecordsPanel state={state} />
     </section>
+  );
+}
+
+
+function HistoryArchivePanel({ state, openTournament }){
+  const closed = (state.tournaments || [])
+    .filter((t) => t.status === "closed" && (t.championUserId || t.historySummary))
+    .sort((a, b) => String(b.historySummary?.finishedAt || b.createdAt || "").localeCompare(String(a.historySummary?.finishedAt || a.createdAt || "")));
+  return (
+    <article className="card history-archive-card">
+      <div className="section-head">
+        <div>
+          <p className="eyebrow">Palmarés</p>
+          <h3>Historial competitivo</h3>
+        </div>
+      </div>
+      <div className="history-archive-list">
+        {closed.slice(0, 6).map((t) => {
+          const history = buildTournamentHistory(state, t);
+          return (
+            <button className="history-archive-row" key={t.id} onClick={() => openTournament?.(t.id)}>
+              <span><strong>{t.name}</strong><small>{t.format ? FORMAT_LABELS[t.format] : "Torneo"} · {t.season || state.currentSeason}</small></span>
+              <span><b>{history.champion}</b><small>{history.championTeam} · {history.playedMatches} PJ · {history.totalGoals} goles</small></span>
+              <span><small>Goleador</small><strong>{history.topScorer}</strong></span>
+            </button>
+          );
+        })}
+        {!closed.length && <p className="empty">Cuando finalices torneos, aparecerán aquí como historial competitivo.</p>}
+      </div>
+    </article>
   );
 }
 
@@ -4575,7 +4675,7 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
             <button className={tab === "combos" ? "active" : ""} onClick={() => setTab("combos")}>Usuario + Equipo</button>
             <button className={tab === "public" ? "active" : ""} onClick={() => setTab("public")}>Fichas</button>
             <button className={tab === "rivalries" ? "active" : ""} onClick={() => setTab("rivalries")}>Rivalidades</button>
-            <button className={tab === "scorers" ? "active" : ""} onClick={() => setTab("scorers")}>Goles/Asist.</button><button className={tab === "records" ? "active" : ""} onClick={() => setTab("records")}>Récords</button>
+            <button className={tab === "scorers" ? "active" : ""} onClick={() => setTab("scorers")}>Goles/Asist.</button><button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>Palmarés</button><button className={tab === "records" ? "active" : ""} onClick={() => setTab("records")}>Récords</button>
           </div>
         </div>
 
@@ -4602,7 +4702,7 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
         {tab === "public" && <PublicProfiles state={state} currentUser={currentUser} />}
         {tab === "rivalries" && <RivalriesPanel state={state} />}
         {tab === "scorers" && <ScorersPanel state={state} cloudRankings={cloudRankings} />}
-        {tab === "records" && <RecordsPanel state={state} />}
+        {tab === "history" && <HistoryArchivePanel state={state} />}{tab === "records" && <RecordsPanel state={state} />}
       </article>
       <UserComparator state={state} currentUser={currentUser} />
     </section>

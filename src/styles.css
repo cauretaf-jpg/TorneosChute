@@ -2255,3 +2255,47 @@ tr:last-child td { border-bottom: 0; }
 @media (max-width: 720px){
   .mode-choice-grid,.match-team-selector-grid{grid-template-columns:1fr;}
 }
+
+/* Chute Plataforma 1.6 · Historial competitivo */
+.history-archive-card {
+  overflow: hidden;
+}
+.history-archive-list {
+  display: grid;
+  gap: .75rem;
+}
+.history-archive-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) minmax(160px, .8fr);
+  gap: 1rem;
+  align-items: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  border-radius: 18px;
+  padding: .9rem 1rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.history-archive-row:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.history-archive-row span {
+  display: grid;
+  gap: .2rem;
+}
+.history-archive-row small {
+  color: var(--muted);
+  font-weight: 600;
+}
+.history-archive-row strong,
+.history-archive-row b {
+  color: var(--text);
+}
+@media (max-width: 760px) {
+  .history-archive-row {
+    grid-template-columns: 1fr;
+  }
+}
