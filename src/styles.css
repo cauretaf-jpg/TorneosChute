@@ -2493,3 +2493,112 @@ tr:last-child td { border-bottom: 0; }
     margin-left: 0;
   }
 }
+
+/* 1.8.1 · Perfil competitivo de equipos */
+.compact-head { margin-bottom: -4px; }
+.team-card > * { position: relative; z-index: 1; }
+.team-card-button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: inherit;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.team-card-button:hover,
+.team-card-button:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(94,211,255,.42);
+  box-shadow: 0 22px 55px rgba(0,0,0,.28);
+  outline: none;
+}
+.team-card-button.selected {
+  border-color: rgba(94,211,255,.62);
+  box-shadow: 0 24px 70px rgba(94,211,255,.12), 0 20px 55px rgba(0,0,0,.24);
+}
+.team-card-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.team-card-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+.team-card-mini-stats span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.055);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.team-card-mini-stats strong { font-size: 1rem; color: var(--text); }
+.team-card-mini-stats small { color: var(--muted); font-size: .72rem; }
+.team-profile-detail {
+  position: relative;
+  overflow: hidden;
+  padding: 22px;
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(94,211,255,.10), rgba(255,255,255,.045));
+  box-shadow: var(--shadow);
+}
+.team-profile-detail::after {
+  content: "";
+  position: absolute;
+  inset: -30% -20% auto auto;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.team-profile-detail.azul { background: linear-gradient(135deg, rgba(33,128,255,.20), rgba(255,255,255,.045)); }
+.team-profile-detail.rojo { background: linear-gradient(135deg, rgba(255,76,76,.18), rgba(255,255,255,.045)); }
+.team-profile-detail.morado { background: linear-gradient(135deg, rgba(163,99,255,.19), rgba(255,255,255,.045)); }
+.team-profile-detail.naranja { background: linear-gradient(135deg, rgba(255,151,61,.18), rgba(255,255,255,.045)); }
+.team-profile-detail.celeste { background: linear-gradient(135deg, rgba(79,209,255,.18), rgba(255,255,255,.045)); }
+.team-profile-detail.verde { background: linear-gradient(135deg, rgba(74,222,128,.16), rgba(255,255,255,.045)); }
+.team-profile-detail > * { position: relative; z-index: 1; }
+.team-profile-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.team-profile-hero h2 { margin: 0 0 4px; }
+.team-profile-hero p { margin: 0; color: var(--muted); }
+.team-profile-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.team-profile-grid { margin-top: 14px; }
+.soft-card { background: rgba(0,0,0,.13); }
+.roster-profile-card { margin-top: 14px; }
+.theme-light .team-card-mini-stats span,
+.theme-light .soft-card {
+  background: rgba(255,255,255,.70);
+  border-color: rgba(15,23,42,.10);
+}
+.theme-light .team-profile-detail {
+  background: linear-gradient(135deg, rgba(33,119,255,.09), rgba(255,255,255,.88));
+}
+.theme-light .team-card-button.selected {
+  border-color: rgba(33,119,255,.36);
+  box-shadow: 0 24px 70px rgba(33,119,255,.12), 0 20px 55px rgba(15,23,42,.10);
+}
+@media (max-width: 920px){
+  .team-profile-hero { grid-template-columns: auto 1fr; }
+  .team-profile-hero .status-pill { grid-column: 1 / -1; justify-self: start; }
+  .team-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px){
+  .team-card-mini-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-profile-detail { padding: 16px; border-radius: 24px; }
+  .team-profile-hero { grid-template-columns: 1fr; }
+  .team-profile-stats { grid-template-columns: 1fr; }
+}

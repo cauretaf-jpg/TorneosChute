@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const DATA_VERSION = 6;
 
 
@@ -5326,25 +5326,167 @@ function UserComparator({ state, currentUser }){
 }
 
 function Teams({ state, teamRanking, userTeamRanking }){
+  const [selectedTeamId, setSelectedTeamId] = useState(state.teams[0]?.id || "");
+
+  useEffect(() => {
+    if (!state.teams.some((team) => team.id === selectedTeamId)) {
+      setSelectedTeamId(state.teams[0]?.id || "");
+    }
+  }, [state.teams, selectedTeamId]);
+
+  const selectedTeam = state.teams.find((team) => team.id === selectedTeamId) || state.teams[0];
+  const selectedRank = selectedTeam ? (teamRanking.find((r) => r.teamId === selectedTeam.id) || { teamId: selectedTeam.id, name: selectedTeam.short || selectedTeam.name, ...emptyStats(), performance: 0, pos: "-" }) : null;
+
   return (
     <section className="stack">
-      <div className="team-grid detailed">
+      <div className="section-head">
+        <div>
+          <p className="eyebrow">Clubes oficiales</p>
+          <h2>Equipos</h2>
+          <p>Selecciona un club para revisar su perfil competitivo, rendimiento histórico, usuarios destacados y plantilla oficial.</p>
+        </div>
+      </div>
+
+      {selectedTeam && <TeamProfilePanel state={state} team={selectedTeam} ranking={selectedRank} userTeamRanking={userTeamRanking} />}
+
+      <div className="section-head compact-head">
+        <div>
+          <p className="eyebrow">Seleccionar equipo</p>
+          <h3>Perfiles disponibles</h3>
+        </div>
+      </div>
+      <div className="team-grid detailed selectable-team-grid">
         {state.teams.map((team) => {
-          const rank = teamRanking.find((r) => r.teamId === team.id) || emptyStats();
+          const rank = teamRanking.find((r) => r.teamId === team.id) || { ...emptyStats(), performance: 0, pos: "-" };
           const bestCombo = userTeamRanking.filter((r) => r.teamId === team.id).sort((a, b) => b.score - a.score)[0];
+          const active = selectedTeamId === team.id;
           return (
-            <article className={`team-card ${team.tone}`} key={team.id}>
-              <TeamLogo team={team} size="lg" />
+            <button type="button" className={`team-card team-card-button ${team.tone} ${active ? "selected" : ""}`} key={team.id} onClick={() => setSelectedTeamId(team.id)}>
+              <div className="team-card-topline">
+                <TeamLogo team={team} size="lg" />
+                <span className="status-pill">{active ? "Perfil abierto" : "Ver perfil"}</span>
+              </div>
               <h3>{team.name}</h3>
               <p>DT: <strong>{team.coach}</strong></p>
-              <p>{rank.pj || 0} PJ · {rank.pg || 0} PG · {rank.titles || 0} títulos</p>
+              <div className="team-card-mini-stats">
+                <span><strong>{rank.pj || 0}</strong><small>PJ</small></span>
+                <span><strong>{rank.pg || 0}</strong><small>PG</small></span>
+                <span><strong>{rank.titles || 0}</strong><small>Copas</small></span>
+                <span><strong>{rank.performance || 0}%</strong><small>Rend.</small></span>
+              </div>
               <small>Mejor usuario: {bestCombo?.userName || "Sin datos"}</small>
-              <RosterPreview team={team} />
-            </article>
+            </button>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function TeamProfilePanel({ state, team, ranking, userTeamRanking }){
+  const profile = getTeamProfile(state, team.id);
+  const rank = ranking || profile.ranking || { ...emptyStats(), performance: 0, pos: "-" };
+  const bestCombos = userTeamRanking.filter((row) => row.teamId === team.id).sort((a, b) => b.score - a.score || b.performance - a.performance).slice(0, 5);
+  const playerRows = buildPlayerContributionRanking(state).filter((row) => row.teamId === team.id).slice(0, 6);
+  const goalRows = buildGoalRanking(state).filter((row) => row.teamId === team.id).slice(0, 5);
+  const assistRows = buildAssistRanking(state).filter((row) => row.teamId === team.id).slice(0, 5);
+  const titles = (state.tournaments || []).filter((t) => t.status === "closed" && t.championTeamId === team.id).slice(-5).reverse();
+  const recentRows = profile.recent.map(({ tournament, match }, index) => {
+    const home = getUser(state, match.homeUserId).alias;
+    const away = getUser(state, match.awayUserId).alias;
+    const homeTeam = getTeam(state, match.homeTeamId).short || getTeam(state, match.homeTeamId).name;
+    const awayTeam = getTeam(state, match.awayTeamId).short || getTeam(state, match.awayTeamId).name;
+    return {
+      key: `${team.id}_${match.id || index}`,
+      tournament,
+      round: match.round || "Partido",
+      result: `${home} ${match.homeGoals}-${match.awayGoals} ${away}`,
+      teams: `${homeTeam} vs ${awayTeam}`
+    };
+  });
+
+  return (
+    <article className={`team-profile-detail ${team.tone}`}>
+      <div className="team-profile-hero">
+        <TeamLogo team={team} size="xl" />
+        <div>
+          <p className="eyebrow">Perfil de equipo</p>
+          <h2>{team.name}</h2>
+          <p>DT: <strong>{team.coach || "Sin entrenador"}</strong></p>
+        </div>
+        <span className="status-pill closed">Ranking #{rank.pos || "-"}</span>
+      </div>
+
+      <div className="info-grid team-profile-stats">
+        <span>Partidos <strong>{rank.pj || 0}</strong></span>
+        <span>Victorias <strong>{rank.pg || 0}</strong></span>
+        <span>Empates <strong>{rank.pe || 0}</strong></span>
+        <span>Derrotas <strong>{rank.pp || 0}</strong></span>
+        <span>Goles a favor <strong>{rank.gf || 0}</strong></span>
+        <span>Goles en contra <strong>{rank.gc || 0}</strong></span>
+        <span>Diferencia <strong>{rank.dg || 0}</strong></span>
+        <span>Títulos <strong>{rank.titles || 0}</strong></span>
+        <span>Rendimiento <strong>{rank.performance || 0}%</strong></span>
+        <span>Score <strong>{rank.score || 0}</strong></span>
+      </div>
+
+      <div className="grid-2 team-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Usuarios destacados</h3>
+          <div className="list spaced">
+            {bestCombos.map((combo) => (
+              <div className="list-row" key={combo.key}>
+                <span><strong>{combo.userName}</strong><small>{combo.pj} PJ · {combo.pg} PG · {combo.performance}% rendimiento</small></span>
+                <b>{combo.score}</b>
+              </div>
+            ))}
+            {!bestCombos.length && <p className="empty">Aún no hay usuarios destacados con este equipo.</p>}
+          </div>
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Últimos partidos</h3>
+          <SimpleTable rows={recentRows} columns={["tournament", "round", "result", "teams"]} labels={{ tournament: "Torneo", round: "Fecha", result: "Resultado", teams: "Equipos" }} compact />
+        </section>
+      </div>
+
+      <div className="grid-2 team-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Futbolistas históricos</h3>
+          <SimpleTable rows={playerRows} columns={["pos", "playerName", "goals", "assists", "contributions"]} labels={{ pos: "#", playerName: "Jugador", goals: "G", assists: "A", contributions: "G+A" }} compact />
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Palmarés reciente</h3>
+          <div className="list spaced">
+            {titles.map((tournament) => (
+              <div className="list-row" key={tournament.id}>
+                <span><strong>{tournament.name}</strong><small>{tournament.season || state.currentSeason} · Campeón: {getUser(state, tournament.championUserId).alias}</small></span>
+                <b>🏆</b>
+              </div>
+            ))}
+            {!titles.length && <p className="empty">Aún no registra títulos.</p>}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid-2 team-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Goleadores del club</h3>
+          <SimpleTable rows={goalRows} columns={["pos", "playerName", "goals", "assists"]} labels={{ pos: "#", playerName: "Jugador", goals: "Goles", assists: "Asist." }} compact />
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Asistidores del club</h3>
+          <SimpleTable rows={assistRows} columns={["pos", "playerName", "assists", "goals"]} labels={{ pos: "#", playerName: "Jugador", assists: "Asist.", goals: "Goles" }} compact />
+        </section>
+      </div>
+
+      <section className="profile-public-card soft-card roster-profile-card">
+        <h3>Plantilla oficial</h3>
+        <RosterPreview team={team} />
+      </section>
+    </article>
   );
 }
 

@@ -1,3 +1,11 @@
+# Changelog
+
+## 1.8.1
+
+- Convierte la sección Equipos en una vista con perfiles competitivos seleccionables.
+- Cada equipo ahora puede abrirse para revisar estadísticas, usuarios destacados, últimos partidos, futbolistas históricos, goleadores, asistidores, palmarés y plantilla oficial.
+- No requiere SQL nuevo.
+
 
 ## 1.8.0 · Producto final y fixture por fechas
 
