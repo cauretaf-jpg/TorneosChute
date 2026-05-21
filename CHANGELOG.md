@@ -1,4 +1,12 @@
 
+
+## 1.7.4 - Finalización robusta de torneos
+
+- Agregada función segura `finish_chute_tournament_safe_v174`.
+- La app ahora intenta cierre por RPC nueva, compatibilidad previa y respaldo directo por RLS.
+- El resumen histórico se envía desde la app para evitar bloqueos por cálculos SQL complejos.
+- Corregida la finalización de torneos cuando funciones anteriores de Supabase fallan o no están disponibles en caché PostgREST.
+
 ## 1.7.2
 - Corrección robusta del cierre de torneos en Supabase mediante `finish_chute_tournament_v172`.
 - El cierre ya no depende de la función anterior si quedó desactualizada en PostgREST.

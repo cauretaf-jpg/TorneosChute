@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.7.2";
+const APP_VERSION = "1.7.4";
 const DATA_VERSION = 6;
 
 
@@ -2527,35 +2527,107 @@ function App(){
     await supabaseClient.from("tournament_activity").insert({ tournament_id: tournamentId, type, message, user_id: userId || null });
   }
 
+  async function finishCloudTournamentWithFallback(tournamentId, extra = {}) {
+    const championUserId = extra.champion_user_id || null;
+    const championTeamId = extra.champion_team_id || null;
+    const summaryJson = extra.summary_json || {};
+    const nowIso = new Date().toISOString();
+    const rpcAttempts = [
+      {
+        name: "finish_chute_tournament_safe_v174",
+        args: {
+          p_tournament_id: tournamentId,
+          p_champion_user_id: championUserId,
+          p_champion_team_id: championTeamId,
+          p_summary_json: summaryJson
+        }
+      },
+      {
+        name: "finish_chute_tournament_v172",
+        args: {
+          p_tournament_id: tournamentId,
+          p_champion_user_id: championUserId,
+          p_champion_team_id: championTeamId
+        }
+      },
+      {
+        name: "close_chute_tournament",
+        args: {
+          p_tournament_id: tournamentId,
+          p_champion_user_id: championUserId,
+          p_champion_team_id: championTeamId
+        }
+      }
+    ];
+
+    const rpcErrors = [];
+    for (const attempt of rpcAttempts) {
+      const { error } = await supabaseClient.rpc(attempt.name, attempt.args);
+      if (!error) return { ok: true, mode: attempt.name };
+      rpcErrors.push(`${attempt.name}: ${error.message || error.code || "error"}`);
+    }
+
+    const fallbackPayload = {
+      status: "closed",
+      champion_user_id: championUserId,
+      champion_team_id: championTeamId,
+      updated_at: nowIso
+    };
+    const { error: tournamentError } = await supabaseClient
+      .from("tournaments")
+      .update(fallbackPayload)
+      .eq("id", tournamentId);
+
+    if (tournamentError) {
+      return { ok: false, error: tournamentError, rpcErrors };
+    }
+
+    const summaryPayload = {
+      tournament_id: tournamentId,
+      champion_user_id: championUserId,
+      champion_team_id: championTeamId,
+      runner_up_user_id: summaryJson.runnerUpUserId || null,
+      runner_up_team_id: summaryJson.runnerUpTeamId || null,
+      best_attack_team_id: summaryJson.bestAttackTeamId || null,
+      best_defense_team_id: summaryJson.bestDefenseTeamId || null,
+      top_scorer_name: summaryJson.topScorerName || null,
+      top_scorer_team_id: summaryJson.topScorerTeamId || null,
+      top_scorer_goals: Number(summaryJson.topScorerGoals || 0),
+      top_assist_name: summaryJson.topAssistName || null,
+      top_assist_team_id: summaryJson.topAssistTeamId || null,
+      top_assist_count: Number(summaryJson.topAssistCount || 0),
+      best_player_name: summaryJson.bestPlayerName || null,
+      best_player_team_id: summaryJson.bestPlayerTeamId || null,
+      best_player_goals: Number(summaryJson.bestPlayerGoals || 0),
+      best_player_assists: Number(summaryJson.bestPlayerAssists || 0),
+      best_player_contributions: Number(summaryJson.bestPlayerContributions || 0),
+      played_matches: Number(summaryJson.playedMatches || 0),
+      total_goals: Number(summaryJson.totalGoals || 0),
+      finished_at: nowIso,
+      summary_json: summaryJson,
+      updated_at: nowIso
+    };
+
+    await supabaseClient
+      .from("tournament_summaries")
+      .upsert(summaryPayload, { onConflict: "tournament_id" });
+
+    await insertCloudActivity(tournamentId, "closed", "El torneo fue finalizado.");
+    return { ok: true, mode: "direct_update_fallback", rpcErrors };
+  }
+
   async function updateCloudTournamentStatus(tournamentId, status, extra = {}) {
     if (!supabaseClient || !cloudSession?.user?.id) return false;
     setCloudTournamentsLoading(true);
     setCloudTournamentsNotice("");
     try {
       if (status === "closed") {
-        const championUserId = extra.champion_user_id || null;
-        const championTeamId = extra.champion_team_id || null;
-
-        let finishError = null;
-        const { error: finishV172Error } = await supabaseClient.rpc("finish_chute_tournament_v172", {
-          p_tournament_id: tournamentId,
-          p_champion_user_id: championUserId,
-          p_champion_team_id: championTeamId
-        });
-
-        if (finishV172Error) {
-          finishError = finishV172Error;
-          const { error: legacyError } = await supabaseClient.rpc("close_chute_tournament", {
-            p_tournament_id: tournamentId,
-            p_champion_user_id: championUserId,
-            p_champion_team_id: championTeamId
-          });
-          if (legacyError) finishError = legacyError;
-          else finishError = null;
+        const result = await finishCloudTournamentWithFallback(tournamentId, extra);
+        if (!result.ok) {
+          const message = result.error?.message || "No se pudo finalizar el torneo.";
+          throw new Error(message);
         }
-
-        if (finishError) throw finishError;
-        setCloudTournamentsNotice("Torneo finalizado y guardado en el historial.");
+        setCloudTournamentsNotice("Torneo finalizado correctamente.");
         await refreshCloudTournaments({ silent: true });
         return true;
       }
@@ -2569,40 +2641,8 @@ function App(){
       await refreshCloudTournaments({ silent: true });
       return true;
     } catch (error) {
-      let rawMessage = error?.message || "No se pudo actualizar el estado del torneo.";
-      const missingCloseFunction = status === "closed" && (
-        error?.status === 404 ||
-        error?.code === "PGRST202" ||
-        rawMessage.includes("close_chute_tournament") ||
-        rawMessage.includes("Could not find the function") ||
-        rawMessage.includes("Failed to fetch")
-      );
-
-      if (missingCloseFunction) {
-        const fallbackPayload = {
-          status: "closed",
-          champion_user_id: extra.champion_user_id || null,
-          champion_team_id: extra.champion_team_id || null
-        };
-        const { error: fallbackError } = await supabaseClient
-          .from("tournaments")
-          .update(fallbackPayload)
-          .eq("id", tournamentId);
-
-        if (!fallbackError) {
-          await insertCloudActivity(tournamentId, "closed", "El torneo fue finalizado.");
-          setCloudTournamentsNotice("Torneo finalizado correctamente.");
-          await refreshCloudTournaments({ silent: true });
-          return true;
-        }
-
-        rawMessage = fallbackError?.message || rawMessage;
-      }
-
-      const friendlyMessage = rawMessage.includes("close_chute_tournament") || rawMessage.includes("Could not find the function")
-        ? "No se pudo finalizar el torneo. Ejecuta la actualización de base de datos 1.7.2 y vuelve a intentar."
-        : rawMessage;
-      setCloudTournamentsNotice(friendlyMessage);
+      const rawMessage = error?.message || "No se pudo actualizar el estado del torneo.";
+      setCloudTournamentsNotice(rawMessage);
       return false;
     } finally {
       setCloudTournamentsLoading(false);
@@ -3982,7 +4022,28 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
     const champion = getTournamentChampionRow(state, tournament, standings);
     if (!champion) return alert("No hay campeón calculable todavía.");
     if (isCloudTournament && onCloudUpdateTournamentStatus) {
-      const ok = await onCloudUpdateTournamentStatus(tournament.id, "closed", { champion_user_id: champion.userId, champion_team_id: champion.teamId });
+      const bestPlayer = buildPlayerContributionRanking(state, tournament.id)[0] || null;
+      const cloudSummary = {
+        source: "client_1_7_4",
+        runnerUpUserId: finishSummary.runnerUp?.userId || null,
+        runnerUpTeamId: finishSummary.runnerUp?.teamId || null,
+        bestAttackTeamId: finishSummary.bestAttack?.teamId || null,
+        bestDefenseTeamId: finishSummary.bestDefense?.teamId || null,
+        topScorerName: finishSummary.topScorer?.playerName || null,
+        topScorerTeamId: finishSummary.topScorer?.teamId || null,
+        topScorerGoals: Number(finishSummary.topScorer?.goals || 0),
+        topAssistName: finishSummary.topAssist?.playerName || null,
+        topAssistTeamId: finishSummary.topAssist?.teamId || null,
+        topAssistCount: Number(finishSummary.topAssist?.assists || 0),
+        bestPlayerName: bestPlayer?.playerName || null,
+        bestPlayerTeamId: bestPlayer?.teamId || null,
+        bestPlayerGoals: Number(bestPlayer?.goals || 0),
+        bestPlayerAssists: Number(bestPlayer?.assists || 0),
+        bestPlayerContributions: Number(bestPlayer?.contributions || 0),
+        playedMatches: Number(finishSummary.playedMatches || 0),
+        totalGoals: Number(finishSummary.totalGoals || 0)
+      };
+      const ok = await onCloudUpdateTournamentStatus(tournament.id, "closed", { champion_user_id: champion.userId, champion_team_id: champion.teamId, summary_json: cloudSummary });
       if (ok) setShowFinishSummary(false);
       return;
     }
