@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.7.2";
 const DATA_VERSION = 6;
 
 
@@ -2533,12 +2533,28 @@ function App(){
     setCloudTournamentsNotice("");
     try {
       if (status === "closed") {
-        const { error } = await supabaseClient.rpc("close_chute_tournament", {
+        const championUserId = extra.champion_user_id || null;
+        const championTeamId = extra.champion_team_id || null;
+
+        let finishError = null;
+        const { error: finishV172Error } = await supabaseClient.rpc("finish_chute_tournament_v172", {
           p_tournament_id: tournamentId,
-          p_champion_user_id: extra.champion_user_id || null,
-          p_champion_team_id: extra.champion_team_id || null
+          p_champion_user_id: championUserId,
+          p_champion_team_id: championTeamId
         });
-        if (error) throw error;
+
+        if (finishV172Error) {
+          finishError = finishV172Error;
+          const { error: legacyError } = await supabaseClient.rpc("close_chute_tournament", {
+            p_tournament_id: tournamentId,
+            p_champion_user_id: championUserId,
+            p_champion_team_id: championTeamId
+          });
+          if (legacyError) finishError = legacyError;
+          else finishError = null;
+        }
+
+        if (finishError) throw finishError;
         setCloudTournamentsNotice("Torneo finalizado y guardado en el historial.");
         await refreshCloudTournaments({ silent: true });
         return true;
@@ -2584,7 +2600,7 @@ function App(){
       }
 
       const friendlyMessage = rawMessage.includes("close_chute_tournament") || rawMessage.includes("Could not find the function")
-        ? "No se pudo finalizar el torneo. Ejecuta la actualización de base de datos 1.7.1 y vuelve a intentar."
+        ? "No se pudo finalizar el torneo. Ejecuta la actualización de base de datos 1.7.2 y vuelve a intentar."
         : rawMessage;
       setCloudTournamentsNotice(friendlyMessage);
       return false;

@@ -1,4 +1,10 @@
 
+## 1.7.2
+- Corrección robusta del cierre de torneos en Supabase mediante `finish_chute_tournament_v172`.
+- El cierre ya no depende de la función anterior si quedó desactualizada en PostgREST.
+- El resumen histórico se guarda con una función `security definer` y validación por creador.
+- El cierre tolera llaves de playoff con registros auxiliares y usa partidos confirmados para calcular historial.
+
 ## 1.7.1
 - Se corrigió la finalización de torneos cuando Supabase devuelve 404 por caché/esquema REST.
 - Se agregó `supabase/17_fix_finish_tournament_1_7_1.sql`.
@@ -146,3 +152,10 @@
 ## 1.4.1
 - Corrige políticas RLS de Supabase que podían generar `infinite recursion detected in policy for relation "tournaments"`.
 - Agrega `supabase/11_fix_rls_recursion_1_4_1.sql` con funciones auxiliares seguras para validar acceso a torneos sin recursión.
+
+
+## 1.7.3
+
+- Corrige el SQL de finalización cuando ya existe una función `close_chute_tournament` con un tipo de retorno anterior.
+- Agrega `supabase/19_fix_close_function_signature_1_7_3.sql`.
+- Mantiene la función nueva `finish_chute_tournament_v172` como mecanismo principal de cierre.
