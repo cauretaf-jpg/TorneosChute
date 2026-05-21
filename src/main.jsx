@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.8.3";
+const APP_VERSION = "1.8.4";
 const DATA_VERSION = 6;
 
 
@@ -2035,6 +2035,96 @@ function buildTournamentHistory(state, tournament){
   };
 }
 
+
+function buildTournamentProfile(state, tournament){
+  const standings = tournamentStandings(state, tournament);
+  const history = buildTournamentHistory(state, tournament);
+  const goalRows = buildGoalRanking(state, tournament.id);
+  const assistRows = buildAssistRanking(state, tournament.id);
+  const playerRows = buildPlayerContributionRanking(state, tournament.id);
+  const playedMatches = (tournament.matches || []).filter(matchPlayed);
+  const championRow = getTournamentChampionRow(state, tournament, standings);
+  const runnerUpRow = getTournamentRunnerUpRow(state, tournament, standings);
+  const championUser = tournament.championUserId ? getUser(state, tournament.championUserId) : championRow ? getUser(state, championRow.userId) : null;
+  const championTeam = tournament.championTeamId ? getTeam(state, tournament.championTeamId) : championRow ? getTeam(state, championRow.teamId) : null;
+  const runnerUpUser = runnerUpRow ? getUser(state, runnerUpRow.userId) : null;
+  const runnerUpTeam = runnerUpRow ? getTeam(state, runnerUpRow.teamId) : null;
+  const bestAttack = [...standings].sort((a, b) => b.gf - a.gf || b.dg - a.dg)[0] || null;
+  const bestDefense = [...standings].sort((a, b) => a.gc - b.gc || b.dg - a.dg)[0] || null;
+  const finalMatch = getKnockoutFinalMatch(tournament) || playedMatches[playedMatches.length - 1] || null;
+  const notableMatches = [...playedMatches]
+    .map((match) => {
+      const totalGoals = Number(match.homeGoals || 0) + Number(match.awayGoals || 0);
+      const diff = Math.abs(Number(match.homeGoals || 0) - Number(match.awayGoals || 0));
+      const homeUser = getUser(state, match.homeUserId);
+      const awayUser = getUser(state, match.awayUserId);
+      const homeTeam = getTeam(state, getMatchTeamId(tournament, match, "home"));
+      const awayTeam = getTeam(state, getMatchTeamId(tournament, match, "away"));
+      const winnerId = Number(match.homeGoals) > Number(match.awayGoals) ? match.homeUserId : Number(match.awayGoals) > Number(match.homeGoals) ? match.awayUserId : match.penaltyWinnerUserId || match.winnerUserId || null;
+      const winner = winnerId ? getUser(state, winnerId).alias : "Empate";
+      return {
+        id: match.id,
+        round: fixtureDateLabel(match),
+        detail: fixtureRoundDetail(match),
+        match: `${homeUser.alias} ${match.homeGoals}-${match.awayGoals} ${awayUser.alias}`,
+        teams: `${homeTeam.short || homeTeam.name} vs ${awayTeam.short || awayTeam.name}`,
+        totalGoals,
+        diff,
+        winner
+      };
+    })
+    .sort((a, b) => b.totalGoals - a.totalGoals || b.diff - a.diff)
+    .slice(0, 6)
+    .map((row, index) => ({ ...row, pos: index + 1 }));
+  const participants = (tournament.participants || []).map((participant) => {
+    const user = getUser(state, participant.userId);
+    const team = participant.teamId ? getTeam(state, participant.teamId) : null;
+    const ranking = standings.find((row) => row.userId === participant.userId);
+    return {
+      key: participant.userId,
+      user: user.alias,
+      team: team ? (team.short || team.name) : "Equipo libre",
+      pj: ranking?.pj || 0,
+      pts: ranking?.pts || 0,
+      dg: ranking?.dg || 0
+    };
+  });
+  return {
+    standings,
+    history,
+    goalRows,
+    assistRows,
+    playerRows,
+    playedMatches,
+    championUser,
+    championTeam,
+    runnerUpUser,
+    runnerUpTeam,
+    bestAttack,
+    bestDefense,
+    finalMatch,
+    notableMatches,
+    participants,
+    totalMatches: (tournament.matches || []).length,
+    pendingMatches: (tournament.matches || []).filter((match) => !matchPlayed(match)).length,
+    totalGoals: playedMatches.reduce((sum, match) => sum + Number(match.homeGoals || 0) + Number(match.awayGoals || 0), 0),
+    formatLabel: formatLabel(tournament.format),
+    fixtureLabel: fixtureModeLabel(tournament),
+    teamModeLabel: teamSelectionLabel(tournament),
+    statusLabel: STATUS_LABELS[tournament.status] || tournament.status
+  };
+}
+
+function buildTournamentArchiveRows(state){
+  return (state.tournaments || [])
+    .filter((tournament) => tournament.status === "closed" && (tournament.championUserId || tournament.historySummary))
+    .sort((a, b) => String(b.historySummary?.finishedAt || b.createdAt || "").localeCompare(String(a.historySummary?.finishedAt || a.createdAt || "")))
+    .map((tournament) => {
+      const profile = buildTournamentProfile(state, tournament);
+      return { tournament, profile };
+    });
+}
+
 function buildDataDiagnostics(state){
   const issues = [];
   const aliasMap = new Map();
@@ -3274,7 +3364,7 @@ function App(){
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
-        {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} cloudRankings={cloudRankings} cloudModeActive={cloudModeActive} cloudRankingsLoading={cloudRankingsLoading} cloudRankingsNotice={cloudRankingsNotice} onRefreshRankings={() => refreshCloudRankings({ silent: false })} />}
+        {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} cloudRankings={cloudRankings} cloudModeActive={cloudModeActive} cloudRankingsLoading={cloudRankingsLoading} cloudRankingsNotice={cloudRankingsNotice} onRefreshRankings={() => refreshCloudRankings({ silent: false })} openTournament={openTournament} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
         {view === "perfil" && <Profile state={state} currentUser={currentUser} friendIds={friendIds} rankingUsers={globalRankingUsers} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "admin" && <Admin state={state} commit={commit} />}
@@ -4401,6 +4491,7 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
 
       <div className="tabbar room-tabs">
         <button className={safeTab === "resumen" ? "active" : ""} onClick={() => setRoomTab("resumen")}>Resumen</button>
+        <button className={safeTab === "perfil" ? "active" : ""} onClick={() => setRoomTab("perfil")}>Perfil</button>
         {tournament.status !== "preparing" && <button className={safeTab === "partidos" ? "active" : ""} onClick={() => setRoomTab("partidos")}>Partidos</button>}
         {tournament.status !== "preparing" && <button className={safeTab === "tabla" ? "active" : ""} onClick={() => setRoomTab("tabla")}>Tabla</button>}
         {tournament.status !== "preparing" && <button className={safeTab === "goles" ? "active" : ""} onClick={() => setRoomTab("goles")}>Goleadores</button>}
@@ -4476,6 +4567,16 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
           )}
           <TournamentActivity tournament={tournament} state={state} />
         </div>
+      )}
+
+      {safeTab === "perfil" && (
+        <TournamentProfilePanel
+          state={state}
+          tournament={tournament}
+          onDownloadChampion={() => downloadChampionImage(state, tournament, finishSummary)}
+          onDownloadStandings={() => downloadStandingsImage(state, tournament, standings)}
+          onDownloadFixture={() => downloadFixtureImage(state, tournament)}
+        />
       )}
 
       {safeTab === "admin" && isCreator && (
@@ -4594,6 +4695,100 @@ function TournamentStatusGuide({ tournament, isCreator, pendingJoinRequests, pen
         <em>{pendingJoinRequests} solicitudes</em>
         <em>{pendingResults} por revisar</em>
         <em>{unplayed} pendientes</em>
+      </div>
+    </div>
+  );
+}
+
+
+function TournamentProfilePanel({ state, tournament, onDownloadChampion, onDownloadStandings, onDownloadFixture }){
+  const profile = buildTournamentProfile(state, tournament);
+  const closed = tournament.status === "closed" || Boolean(tournament.championUserId);
+  const championInitials = (profile.championUser?.alias || "CH").slice(0, 2).toUpperCase();
+  const finalMatch = profile.finalMatch;
+  const finalMatchLabel = finalMatch ? `${getUser(state, finalMatch.homeUserId).alias} ${finalMatch.homeGoals}-${finalMatch.awayGoals} ${getUser(state, finalMatch.awayUserId).alias}` : "Sin final registrada";
+  return (
+    <div className="tab-panel tournament-profile-panel">
+      <article className={`tournament-profile-detail ${closed ? "closed" : "active"}`}>
+        <div className="tournament-profile-hero">
+          <span className="tournament-cup-badge">{closed ? "🏆" : "CH"}</span>
+          <div>
+            <p className="eyebrow">Perfil de torneo</p>
+            <h2>{tournament.name}</h2>
+            <p>{profile.formatLabel} · {profile.teamModeLabel} · {profile.fixtureLabel} · {tournament.season || state.currentSeason}</p>
+          </div>
+          <span className={`status-pill ${tournament.status}`}>{profile.statusLabel}</span>
+        </div>
+
+        <div className="tournament-profile-main-card">
+          <div className="tournament-champion-block">
+            <span className="avatar huge">{championInitials}</span>
+            <div>
+              <small>{closed ? "Campeón" : "Líder actual"}</small>
+              <strong>{profile.championUser?.alias || profile.history.champion}</strong>
+              <p>{profile.championTeam?.name || profile.history.championTeam}</p>
+            </div>
+          </div>
+          <div className="tournament-final-block">
+            <small>Partido destacado</small>
+            <strong>{finalMatchLabel}</strong>
+            <p>{finalMatch ? `${fixtureDateLabel(finalMatch)} · ${fixtureRoundDetail(finalMatch)}` : "Aparecerá cuando existan partidos jugados."}</p>
+          </div>
+        </div>
+
+        <div className="info-grid tournament-profile-stats">
+          <span>Participantes <strong>{profile.participants.length}</strong></span>
+          <span>Partidos <strong>{profile.playedMatches.length}/{profile.totalMatches}</strong></span>
+          <span>Goles <strong>{profile.totalGoals}</strong></span>
+          <span>Goleador <strong>{profile.goalRows[0]?.playerName || "Sin datos"}</strong></span>
+          <span>Asistidor <strong>{profile.assistRows[0]?.playerName || "Sin datos"}</strong></span>
+          <span>Mejor futbolista <strong>{profile.playerRows[0]?.playerName || "Sin datos"}</strong></span>
+          <span>Mejor ataque <strong>{profile.bestAttack ? getTeam(state, profile.bestAttack.teamId).short : "Sin datos"}</strong></span>
+          <span>Mejor defensa <strong>{profile.bestDefense ? getTeam(state, profile.bestDefense.teamId).short : "Sin datos"}</strong></span>
+        </div>
+
+        <div className="share-actions-grid tournament-profile-actions">
+          {closed && <button className="secondary small" onClick={onDownloadChampion}>Imagen campeón</button>}
+          <button className="secondary small" onClick={onDownloadStandings}>Imagen tabla</button>
+          <button className="secondary small" onClick={onDownloadFixture}>Imagen fixture</button>
+        </div>
+      </article>
+
+      <div className="grid-2 tournament-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Podio y rendimiento</h3>
+          <div className="list spaced">
+            <div className="list-row"><span><strong>{profile.championUser?.alias || profile.history.champion}</strong><small>{profile.championTeam?.short || profile.history.championTeam}</small></span><b>Campeón</b></div>
+            <div className="list-row"><span><strong>{profile.runnerUpUser?.alias || profile.history.runnerUp}</strong><small>{profile.runnerUpTeam?.short || "Subcampeón"}</small></span><b>2° lugar</b></div>
+            <div className="list-row"><span><strong>{profile.bestAttack ? getTeam(state, profile.bestAttack.teamId).short : profile.history.bestAttack}</strong><small>{profile.bestAttack?.gf || 0} goles a favor</small></span><b>Ataque</b></div>
+            <div className="list-row"><span><strong>{profile.bestDefense ? getTeam(state, profile.bestDefense.teamId).short : profile.history.bestDefense}</strong><small>{profile.bestDefense?.gc || 0} goles en contra</small></span><b>Defensa</b></div>
+          </div>
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Futbolistas destacados</h3>
+          <div className="player-mini-list">
+            {profile.playerRows.slice(0, 5).map((row) => (
+              <div className="player-mini-row" key={`${row.teamId}_${row.playerName}`}>
+                <PlayerAvatar teamId={row.teamId} playerName={row.playerName} size="xs" />
+                <span><strong>{row.playerName}</strong><small>{row.teamName} · {row.goals} G · {row.assists} A</small></span>
+                <b>{row.contributions}</b>
+              </div>
+            ))}
+            {!profile.playerRows.length && <p className="empty">Aún no hay goles ni asistencias registradas.</p>}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid-2 tournament-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Tabla final</h3>
+          <SimpleTable rows={profile.standings.slice(0, 8)} columns={["pos", "name", "teamName", "pj", "pg", "pe", "pp", "dg", "pts", "performance"]} labels={{ pos: "#", name: "Usuario", teamName: "Equipo", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", dg: "DG", pts: "PTS", performance: "%" }} compact />
+        </section>
+        <section className="profile-public-card soft-card">
+          <h3>Partidos destacados</h3>
+          <SimpleTable rows={profile.notableMatches} columns={["pos", "round", "match", "teams", "winner"]} labels={{ pos: "#", round: "Fecha", match: "Resultado", teams: "Equipos", winner: "Ganador" }} compact />
+        </section>
       </div>
     </div>
   );
@@ -5327,26 +5522,38 @@ function MundoChute({ state, openTournament, setView }){
 
 
 function HistoryArchivePanel({ state, openTournament }){
-  const closed = (state.tournaments || [])
-    .filter((t) => t.status === "closed" && (t.championUserId || t.historySummary))
-    .sort((a, b) => String(b.historySummary?.finishedAt || b.createdAt || "").localeCompare(String(a.historySummary?.finishedAt || a.createdAt || "")));
+  const closed = buildTournamentArchiveRows(state);
   return (
     <article className="card history-archive-card">
       <div className="section-head">
         <div>
           <p className="eyebrow">Palmarés</p>
-          <h3>Historial competitivo</h3>
+          <h3>Álbum histórico de torneos</h3>
+          <p>Cada torneo finalizado queda guardado como ficha competitiva: campeón, tabla, figuras y partidos destacados.</p>
         </div>
       </div>
-      <div className="history-archive-list">
-        {closed.slice(0, 6).map((t) => {
-          const history = buildTournamentHistory(state, t);
-          return (
-            <button className="history-archive-row" key={t.id} onClick={() => openTournament?.(t.id)}>
-              <span><strong>{t.name}</strong><small>{t.format ? FORMAT_LABELS[t.format] : "Torneo"} · {t.season || state.currentSeason}</small></span>
-              <span><b>{history.champion}</b><small>{history.championTeam} · {history.playedMatches} PJ · {history.totalGoals} goles</small></span>
-              <span><small>Goleador</small><strong>{history.topScorer}</strong></span>
-            </button>
+      <div className="tournament-archive-grid">
+        {closed.slice(0, 8).map(({ tournament, profile }) => {
+          const content = (
+            <>
+              <div className="archive-card-top">
+                <span className={`status-pill ${tournament.status}`}>{profile.statusLabel}</span>
+                <small>{tournament.season || state.currentSeason}</small>
+              </div>
+              <h4>{tournament.name}</h4>
+              <p><strong>{profile.championUser?.alias || profile.history.champion}</strong> · {profile.championTeam?.short || profile.history.championTeam}</p>
+              <div className="archive-mini-stats">
+                <span>Partidos <strong>{profile.playedMatches.length}</strong></span>
+                <span>Goles <strong>{profile.totalGoals}</strong></span>
+                <span>Goleador <strong>{profile.goalRows[0]?.playerName || "Sin datos"}</strong></span>
+              </div>
+              <small className="archive-card-footer">{profile.formatLabel} · {profile.fixtureLabel}</small>
+            </>
+          );
+          return openTournament ? (
+            <button type="button" className="tournament-archive-card" key={tournament.id} onClick={() => openTournament(tournament.id)}>{content}</button>
+          ) : (
+            <div className="tournament-archive-card" key={tournament.id}>{content}</div>
           );
         })}
         {!closed.length && <p className="empty">Cuando finalices torneos, aparecerán aquí como historial competitivo.</p>}
@@ -5378,7 +5585,7 @@ function RecordsPanel({ state }){
   );
 }
 
-function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeasonFilter, rankingUsers, teamRanking, userTeamRanking, currentUser, cloudRankings, cloudModeActive, cloudRankingsLoading, cloudRankingsNotice, onRefreshRankings }){
+function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeasonFilter, rankingUsers, teamRanking, userTeamRanking, currentUser, cloudRankings, cloudModeActive, cloudRankingsLoading, cloudRankingsNotice, onRefreshRankings, openTournament }){
   const [tab, setTab] = useState("users");
   const [selectedUserId, setSelectedUserId] = useState(currentUser.id);
   const classifiedUsers = rankingUsers.filter((r) => r.status === "Clasificado");
@@ -5458,7 +5665,7 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
         {tab === "public" && <PublicProfiles state={state} currentUser={currentUser} />}
         {tab === "rivalries" && <RivalriesPanel state={state} />}
         {tab === "scorers" && <ScorersPanel state={state} cloudRankings={cloudRankings} />}
-        {tab === "history" && <HistoryArchivePanel state={state} />}{tab === "records" && <RecordsPanel state={state} />}
+        {tab === "history" && <HistoryArchivePanel state={state} openTournament={openTournament} />}{tab === "records" && <RecordsPanel state={state} />}
       </article>
       <UserComparator state={state} currentUser={currentUser} />
     </section>

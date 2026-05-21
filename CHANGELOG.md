@@ -202,3 +202,11 @@
 - Rediseña la pestaña Perfil para mostrar historial competitivo completo.
 - Mejora la pestaña Fichas con perfil de usuario completo.
 - No requiere SQL nuevo.
+
+## 1.8.4 - Perfil de torneos
+
+- Agrega pestaña Perfil dentro de cada sala de torneo.
+- Convierte cada torneo finalizado en una ficha histórica tipo álbum competitivo.
+- Mejora el palmarés con tarjetas visuales de torneos cerrados.
+- Muestra campeón/líder, podio, tabla, figuras y partidos destacados.
+- No requiere SQL nuevo.
