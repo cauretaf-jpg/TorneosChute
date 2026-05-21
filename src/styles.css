@@ -2602,3 +2602,104 @@ tr:last-child td { border-bottom: 0; }
   .team-profile-hero { grid-template-columns: 1fr; }
   .team-profile-stats { grid-template-columns: 1fr; }
 }
+
+/* v1.8.2 - perfiles de usuario */
+.avatar.huge {
+  width: 92px;
+  height: 92px;
+  border-radius: 30px;
+  font-size: 1.55rem;
+  box-shadow: 0 18px 48px rgba(94, 211, 255, .18);
+}
+.avatar.small {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  font-size: .82rem;
+}
+.user-profile-detail {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: radial-gradient(circle at 8% 8%, rgba(94,211,255,.18), transparent 36%), linear-gradient(135deg, rgba(124,92,255,.14), rgba(255,255,255,.045));
+  box-shadow: var(--shadow);
+}
+.user-profile-detail::after {
+  content: "";
+  position: absolute;
+  inset: -28% -16% auto auto;
+  width: 290px;
+  height: 290px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.075);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.user-profile-detail > * { position: relative; z-index: 1; }
+.user-profile-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+.user-profile-hero h2 { margin: 0 0 4px; }
+.user-profile-hero p { margin: 0; color: var(--muted); }
+.user-profile-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.user-profile-grid { margin-top: 0; }
+.user-ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 18px;
+}
+.user-rank-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.045);
+  color: var(--text);
+}
+.user-rank-card:hover,
+.user-rank-card.selected {
+  transform: translateY(-1px);
+  border-color: rgba(94,211,255,.34);
+  background: rgba(94,211,255,.10);
+}
+.user-rank-card span strong,
+.user-rank-card span small { display: block; }
+.user-rank-card span small { margin-top: 3px; color: var(--muted); }
+.user-rank-card b { color: var(--primary); }
+.profile-picker-row { margin-bottom: 4px; }
+.theme-light .user-profile-detail {
+  background: radial-gradient(circle at 8% 8%, rgba(33,119,255,.10), transparent 36%), linear-gradient(135deg, rgba(255,255,255,.92), rgba(239,246,255,.82));
+}
+.theme-light .user-rank-card {
+  background: rgba(255,255,255,.72);
+  border-color: rgba(15,23,42,.10);
+}
+.theme-light .user-rank-card:hover,
+.theme-light .user-rank-card.selected {
+  background: rgba(33,119,255,.08);
+  border-color: rgba(33,119,255,.24);
+}
+@media (max-width: 920px){
+  .user-profile-hero { grid-template-columns: auto 1fr; }
+  .user-profile-hero .status-pill { grid-column: 1 / -1; justify-self: start; }
+  .user-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .user-ranking-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px){
+  .user-profile-detail { padding: 16px; border-radius: 24px; }
+  .user-profile-hero { grid-template-columns: 1fr; }
+  .user-profile-stats { grid-template-columns: 1fr; }
+  .avatar.huge { width: 78px; height: 78px; border-radius: 24px; }
+}

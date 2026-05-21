@@ -185,3 +185,11 @@
 - Corrige el SQL de finalización cuando ya existe una función `close_chute_tournament` con un tipo de retorno anterior.
 - Agrega `supabase/19_fix_close_function_signature_1_7_3.sql`.
 - Mantiene la función nueva `finish_chute_tournament_v172` como mecanismo principal de cierre.
+
+## 1.8.2 - Perfiles de usuario
+
+- Agrega ficha competitiva detallada para usuarios.
+- Permite seleccionar usuarios desde Ranking > Usuarios y ver su perfil.
+- Rediseña la pestaña Perfil para mostrar historial competitivo completo.
+- Mejora la pestaña Fichas con perfil de usuario completo.
+- No requiere SQL nuevo.

@@ -33,3 +33,9 @@ Regla definida: cada usuario solo debe ver torneos creados por él, torneos dond
 ## Actualización 1.7
 
 Antes de usar playoffs en Supabase, ejecuta `supabase/16_playoffs_1_7.sql`. La eliminación directa requiere 2, 4, 8 o 16 participantes. Si un partido de playoff termina empatado, debes elegir ganador por penales; esos penales no cuentan como goles normales.
+
+
+### 1.8.2 · Perfiles de usuario
+- Agrega perfiles competitivos de usuario desde Ranking y Perfil.
+- Muestra rendimiento, palmarés, equipos usados, rivales frecuentes, últimos partidos, futbolistas destacados y logros.
+- No requiere SQL nuevo.

@@ -25,3 +25,8 @@ VERSION 1.8.0
 - No requiere ejecutar SQL nuevo.
 - Reemplaza los archivos, ejecuta subir-chute-github.bat y espera el deploy de Vercel.
 - El fixture ahora se muestra agrupado por fechas. Para editar un partido, abre la fecha y presiona Ver más.
+
+VERSION 1.8.2
+- No requiere ejecutar SQL nuevo.
+- Agrega perfiles competitivos de usuario.
+- Reemplaza los archivos, ejecuta subir-chute-github.bat y espera el deploy de Vercel.

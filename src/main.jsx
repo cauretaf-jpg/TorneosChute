@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.8.2";
 const DATA_VERSION = 6;
 
 
@@ -1381,6 +1381,114 @@ function getUserInsights(state, userId){
     topRival: topRivalId ? getUser(state, topRivalId).alias : "Sin datos",
     recent: recent.slice(-5).reverse()
   };
+}
+
+function buildUserRecentMatchRows(state, userId, limit = 8){
+  const rows = [];
+  state.tournaments.forEach((tournament) => {
+    (tournament.matches || []).filter(matchPlayed).forEach((match) => {
+      if (match.homeUserId !== userId && match.awayUserId !== userId) return;
+      const isHome = match.homeUserId === userId;
+      const opponentId = isHome ? match.awayUserId : match.homeUserId;
+      const myGoals = Number(isHome ? match.homeGoals : match.awayGoals);
+      const opponentGoals = Number(isHome ? match.awayGoals : match.homeGoals);
+      const teamId = isHome ? (match.homeTeamId || getParticipantTeamId(tournament, userId)) : (match.awayTeamId || getParticipantTeamId(tournament, userId));
+      rows.push({
+        key: `${tournament.id}_${match.id}_${userId}`,
+        tournament: tournament.name,
+        round: match.round || "Partido",
+        opponent: getUser(state, opponentId).alias || getUser(state, opponentId).name,
+        team: getTeam(state, teamId).short || getTeam(state, teamId).name,
+        score: `${myGoals}-${opponentGoals}`,
+        result: myGoals > opponentGoals ? "Victoria" : myGoals < opponentGoals ? "Derrota" : "Empate",
+        playedAt: match.playedAt || tournament.createdAt || ""
+      });
+    });
+  });
+  return rows.slice(-limit).reverse();
+}
+
+function buildUserRivalRows(state, userId){
+  const map = {};
+  state.tournaments.forEach((tournament) => {
+    (tournament.matches || []).filter(matchPlayed).forEach((match) => {
+      if (match.homeUserId !== userId && match.awayUserId !== userId) return;
+      const isHome = match.homeUserId === userId;
+      const opponentId = isHome ? match.awayUserId : match.homeUserId;
+      const myGoals = Number(isHome ? match.homeGoals : match.awayGoals);
+      const opponentGoals = Number(isHome ? match.awayGoals : match.homeGoals);
+      if (!map[opponentId]) {
+        const opponent = getUser(state, opponentId);
+        map[opponentId] = { key: opponentId, opponent: opponent.alias || opponent.name, ...emptyStats(), performance: 0 };
+      }
+      applySingleSide(map[opponentId], myGoals, opponentGoals);
+    });
+  });
+  return Object.values(map)
+    .map(finalizeStats)
+    .sort((a, b) => b.pj - a.pj || b.score - a.score || a.opponent.localeCompare(b.opponent))
+    .slice(0, 8);
+}
+
+function buildUserPlayerRows(state, userId){
+  const map = {};
+  state.tournaments.forEach((tournament) => {
+    (tournament.matches || []).forEach((match) => {
+      (match.goalEvents || []).forEach((event) => {
+        const inferredUserId = event.userId || (event.side === "away" ? match.awayUserId : match.homeUserId);
+        if (inferredUserId !== userId) return;
+        const teamId = event.teamId || (event.side === "away" ? match.awayTeamId : match.homeTeamId) || getParticipantTeamId(tournament, userId);
+        const key = `${teamId}_${event.playerName}`;
+        if (!map[key]) {
+          const team = getTeam(state, teamId);
+          map[key] = { key, playerName: event.playerName || "Jugador", teamId, teamName: team.short || team.name, goals: 0, assists: 0, contributions: 0, tournaments: new Set(), last: "" };
+        }
+        map[key].goals += 1;
+        map[key].contributions += 1;
+        map[key].tournaments.add(tournament.name);
+        map[key].last = `${tournament.name} · ${match.round || "Partido"}`;
+        if (event.assistName) {
+          const assistKey = `${teamId}_${event.assistName}`;
+          if (!map[assistKey]) {
+            const team = getTeam(state, teamId);
+            map[assistKey] = { key: assistKey, playerName: event.assistName, teamId, teamName: team.short || team.name, goals: 0, assists: 0, contributions: 0, tournaments: new Set(), last: "" };
+          }
+          map[assistKey].assists += 1;
+          map[assistKey].contributions += 1;
+          map[assistKey].tournaments.add(tournament.name);
+          map[assistKey].last = `${tournament.name} · ${match.round || "Partido"}`;
+        }
+      });
+    });
+  });
+  return Object.values(map)
+    .map((row) => ({ ...row, tournaments: row.tournaments.size }))
+    .sort((a, b) => b.contributions - a.contributions || b.goals - a.goals || b.assists - a.assists || a.playerName.localeCompare(b.playerName))
+    .map((row, index) => ({ ...row, pos: index + 1 }));
+}
+
+function buildUserTournamentResume(state, userId){
+  const played = [];
+  const titles = [];
+  const runnerUps = [];
+  state.tournaments.forEach((tournament) => {
+    const participated = (tournament.participants || []).some((p) => p.userId === userId) || (tournament.matches || []).some((m) => m.homeUserId === userId || m.awayUserId === userId);
+    if (!participated) return;
+    played.push(tournament);
+    if (tournament.status === "closed" && tournament.championUserId === userId) titles.push(tournament);
+    if (tournament.status === "closed" && tournament.historySummary?.runnerUpUserId === userId) runnerUps.push(tournament);
+  });
+  return {
+    played,
+    titles: titles.slice(-6).reverse(),
+    runnerUps: runnerUps.slice(-6).reverse(),
+    closed: played.filter((tournament) => tournament.status === "closed")
+  };
+}
+
+function getUserDisplayName(user, ranking = null){
+  if (user?.alias && user.alias !== "Sin alias") return user.alias;
+  return ranking?.name || user?.name || "Jugador";
 }
 
 function getNextMatchForUser(state, userId){
@@ -5165,8 +5273,17 @@ function RecordsPanel({ state }){
 
 function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeasonFilter, rankingUsers, teamRanking, userTeamRanking, currentUser, cloudRankings, cloudModeActive, cloudRankingsLoading, cloudRankingsNotice, onRefreshRankings }){
   const [tab, setTab] = useState("users");
+  const [selectedUserId, setSelectedUserId] = useState(currentUser.id);
   const classifiedUsers = rankingUsers.filter((r) => r.status === "Clasificado");
   const classifyingUsers = rankingUsers.filter((r) => r.status !== "Clasificado");
+  const selectedUserRanking = rankingUsers.find((r) => r.userId === selectedUserId) || rankingUsers[0] || null;
+  const selectedUser = selectedUserRanking ? { ...getUser(state, selectedUserRanking.userId), alias: getUserDisplayName(getUser(state, selectedUserRanking.userId), selectedUserRanking) } : currentUser;
+
+  useEffect(() => {
+    if (rankingUsers.length && !rankingUsers.some((row) => row.userId === selectedUserId)) {
+      setSelectedUserId(rankingUsers[0].userId);
+    }
+  }, [rankingUsers, selectedUserId]);
 
   return (
     <section className="stack">
@@ -5195,6 +5312,31 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
               </div>
               <label className="compact-select">Temporada<select value={seasonFilter} onChange={(e) => setSeasonFilter(e.target.value)}><option value="all">Histórico</option>{state.seasons.filter((s) => s !== "Histórico").map((season) => <option key={season} value={season}>{season}</option>)}</select></label>
               {cloudModeActive ? <button className="ghost mini" type="button" onClick={onRefreshRankings} disabled={cloudRankingsLoading}>{cloudRankingsLoading ? "Actualizando…" : "Actualizar ranking"}</button> : null}
+            </div>
+            <div className="section-head compact-head">
+              <div>
+                <p className="eyebrow">Perfil de usuario</p>
+                <h4>Ficha competitiva</h4>
+              </div>
+            </div>
+            {selectedUserRanking ? (
+              <UserProfilePanel state={state} user={selectedUser} ranking={selectedUserRanking} userTeamRanking={userTeamRanking} />
+            ) : <p className="empty">Aún no hay usuarios con historial competitivo.</p>}
+
+            <div className="section-head compact-head">
+              <div>
+                <p className="eyebrow">Seleccionar usuario</p>
+                <h4>Ranking principal</h4>
+              </div>
+            </div>
+            <div className="user-ranking-grid">
+              {[...classifiedUsers, ...classifyingUsers].map((row) => (
+                <button key={row.userId} type="button" className={`user-rank-card ${selectedUserId === row.userId ? "selected" : ""}`} onClick={() => setSelectedUserId(row.userId)}>
+                  <span className="avatar small">{(row.name || "JU").slice(0, 2).toUpperCase()}</span>
+                  <span><strong>#{row.pos} {row.name}</strong><small>{row.pj} PJ · {row.pg} PG · {row.performance}% · {row.titles} copas</small></span>
+                  <b>{row.score}</b>
+                </button>
+              ))}
             </div>
             <h4>Ranking principal</h4>
             <SimpleTable rows={classifiedUsers} columns={["pos", "name", "tournaments", "pj", "pg", "pe", "pp", "dg", "titles", "performance", "score"]} labels={{ pos: "#", name: "Usuario", tournaments: "T", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", dg: "DG", titles: "Copas", performance: "%", score: "Score" }} />
@@ -5244,34 +5386,21 @@ function PublicProfiles({ state, currentUser }){
   const [userId, setUserId] = useState(currentUser.id);
   const [teamId, setTeamId] = useState(state.teams[0]?.id || "");
   const user = getUser(state, userId);
-  const ranking = buildUserRanking(state).find((r) => r.userId === userId) || { ...emptyStats(), performance: 0, pos: "-", score: 0 };
-  const insights = getUserInsights(state, userId);
-  const achievements = getAchievementsForUser(state, userId);
+  const ranking = buildUserRanking(state).find((r) => r.userId === userId) || { userId, name: user.alias || user.name, ...emptyStats(), performance: 0, pos: "-", score: 0, status: "En clasificación" };
   const team = getTeam(state, teamId);
   const teamProfile = getTeamProfile(state, teamId);
+  const userTeamRows = buildUserTeamRanking(state);
 
   return (
-    <div className="grid-2 space-top">
-      <article className="profile-public-card">
+    <div className="space-top stack">
+      <div className="form-grid two profile-picker-row">
         <label>Ficha pública de usuario<select value={userId} onChange={(e) => setUserId(e.target.value)}>{state.users.map((u) => <option key={u.id} value={u.id}>{u.alias}</option>)}</select></label>
-        <div className="avatar big">{user.alias.slice(0, 2).toUpperCase()}</div>
-        <h3>{user.alias}</h3>
-        <p>{user.name}</p>
-        <div className="info-grid">
-          <span>Ranking <strong>#{ranking.pos}</strong></span>
-          <span>Partidos <strong>{ranking.pj}</strong></span>
-          <span>Títulos <strong>{ranking.titles}</strong></span>
-          <span>Rendimiento <strong>{ranking.performance}%</strong></span>
-          <span>Equipo más usado <strong>{insights.favoriteTeam}</strong></span>
-          <span>Rival frecuente <strong>{insights.topRival}</strong></span>
-        </div>
-        <div className="achievement-strip wrap">
-          {achievements.map((a) => <span key={a.id} className={a.unlocked ? "achievement on" : "achievement"}><strong>{a.title}</strong><small>{a.unlocked ? "OK" : "Pendiente"}</small></span>)}
-        </div>
-      </article>
+        <label>Ficha pública de equipo<select value={teamId} onChange={(e) => setTeamId(e.target.value)}>{state.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+      </div>
+
+      <UserProfilePanel state={state} user={user} ranking={ranking} userTeamRanking={userTeamRows} />
 
       <article className={`profile-public-card team-profile ${team.tone}`}>
-        <label>Ficha pública de equipo<select value={teamId} onChange={(e) => setTeamId(e.target.value)}>{state.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         <TeamLogo team={team} size="lg" />
         <h3>{team.name}</h3>
         <p>Entrenador: <strong>{team.coach || "Sin entrenador"}</strong></p>
@@ -5380,6 +5509,113 @@ function Teams({ state, teamRanking, userTeamRanking }){
         })}
       </div>
     </section>
+  );
+}
+
+function UserProfilePanel({ state, user, ranking, userTeamRanking }){
+  const displayName = getUserDisplayName(user, ranking);
+  const rank = ranking || { userId: user.id, name: displayName, ...emptyStats(), performance: 0, pos: "-", score: 0, status: "En clasificación" };
+  const insights = getUserInsights(state, user.id);
+  const achievements = getAchievementsForUser(state, user.id);
+  const resume = buildUserTournamentResume(state, user.id);
+  const teamRows = (userTeamRanking || buildUserTeamRanking(state)).filter((row) => row.userId === user.id).sort((a, b) => b.score - a.score || b.performance - a.performance).slice(0, 6);
+  const recentRows = buildUserRecentMatchRows(state, user.id, 8);
+  const rivalRows = buildUserRivalRows(state, user.id);
+  const playerRows = buildUserPlayerRows(state, user.id).slice(0, 8);
+  const statusText = rank.status || (rank.pj >= 5 ? "Clasificado" : "En clasificación");
+
+  return (
+    <article className="user-profile-detail">
+      <div className="user-profile-hero">
+        <div className="avatar huge">{displayName.slice(0, 2).toUpperCase()}</div>
+        <div>
+          <p className="eyebrow">Perfil de usuario</p>
+          <h2>{displayName}</h2>
+          <p>{user.name && user.name !== displayName ? user.name : "Competidor Chute"}{user.createdAt ? ` · miembro desde ${user.createdAt}` : ""}</p>
+        </div>
+        <span className="status-pill closed">Ranking #{rank.pos || "-"}</span>
+      </div>
+
+      <div className="info-grid user-profile-stats">
+        <span>Partidos <strong>{rank.pj || 0}</strong></span>
+        <span>Victorias <strong>{rank.pg || 0}</strong></span>
+        <span>Empates <strong>{rank.pe || 0}</strong></span>
+        <span>Derrotas <strong>{rank.pp || 0}</strong></span>
+        <span>Goles a favor <strong>{rank.gf || 0}</strong></span>
+        <span>Goles en contra <strong>{rank.gc || 0}</strong></span>
+        <span>Diferencia <strong>{rank.dg || 0}</strong></span>
+        <span>Títulos <strong>{rank.titles || 0}</strong></span>
+        <span>Rendimiento <strong>{rank.performance || 0}%</strong></span>
+        <span>Score <strong>{rank.score || 0}</strong></span>
+      </div>
+
+      <div className="grid-2 user-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Identidad competitiva</h3>
+          <div className="profile-lines">
+            <span>Estado <strong>{statusText}</strong></span>
+            <span>Torneos jugados <strong>{resume.played.length}</strong></span>
+            <span>Torneos finalizados <strong>{resume.closed.length}</strong></span>
+            <span>Subcampeonatos <strong>{resume.runnerUps.length}</strong></span>
+            <span>Equipo más usado <strong>{insights.favoriteTeam}</strong></span>
+            <span>Mejor equipo <strong>{insights.bestTeam}</strong></span>
+            <span>Rival frecuente <strong>{insights.topRival}</strong></span>
+          </div>
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Mejores equipos usados</h3>
+          <div className="list spaced">
+            {teamRows.map((row) => (
+              <div className="list-row" key={row.key}>
+                <span><strong>{row.teamName}</strong><small>{row.pj} PJ · {row.pg} PG · {row.performance}% rendimiento · {row.titles} copas</small></span>
+                <b>{row.score}</b>
+              </div>
+            ))}
+            {!teamRows.length && <p className="empty">Aún no hay equipos con historial suficiente.</p>}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid-2 user-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Últimos partidos</h3>
+          <SimpleTable rows={recentRows} columns={["tournament", "round", "opponent", "team", "score", "result"]} labels={{ tournament: "Torneo", round: "Fecha", opponent: "Rival", team: "Equipo", score: "Marcador", result: "Resultado" }} compact />
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Rivales frecuentes</h3>
+          <SimpleTable rows={rivalRows} columns={["opponent", "pj", "pg", "pe", "pp", "gf", "gc", "performance"]} labels={{ opponent: "Rival", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", gf: "GF", gc: "GC", performance: "%" }} compact />
+        </section>
+      </div>
+
+      <div className="grid-2 user-profile-grid">
+        <section className="profile-public-card soft-card">
+          <h3>Futbolistas destacados</h3>
+          <SimpleTable rows={playerRows} columns={["pos", "playerName", "teamName", "goals", "assists", "contributions"]} labels={{ pos: "#", playerName: "Jugador", teamName: "Equipo", goals: "G", assists: "A", contributions: "G+A" }} compact />
+        </section>
+
+        <section className="profile-public-card soft-card">
+          <h3>Palmarés</h3>
+          <div className="list spaced">
+            {resume.titles.map((tournament) => (
+              <div className="list-row" key={tournament.id}>
+                <span><strong>{tournament.name}</strong><small>{tournament.season || state.currentSeason} · {getTeam(state, tournament.championTeamId).short || getTeam(state, tournament.championTeamId).name}</small></span>
+                <b>🏆</b>
+              </div>
+            ))}
+            {!resume.titles.length && <p className="empty">Aún no registra títulos.</p>}
+          </div>
+        </section>
+      </div>
+
+      <section className="profile-public-card soft-card">
+        <h3>Logros</h3>
+        <div className="achievement-strip wrap">
+          {achievements.map((achievement) => <span key={achievement.id} className={achievement.unlocked ? "achievement on" : "achievement"}><strong>{achievement.title}</strong><small>{achievement.description}</small></span>)}
+        </div>
+      </section>
+    </article>
   );
 }
 
@@ -5512,54 +5748,14 @@ function RosterPreview({ team }){
 }
 
 function Profile({ state, currentUser, friendIds, rankingUsers, openTournament, visibleTournaments }){
-  const row = rankingUsers.find((r) => r.userId === currentUser.id) || { ...emptyStats(), performance: 0, score: 0, pos: "-" };
+  const row = rankingUsers.find((r) => r.userId === currentUser.id) || { userId: currentUser.id, name: currentUser.alias || currentUser.name, ...emptyStats(), performance: 0, score: 0, pos: "-", status: "En clasificación" };
   const myTournaments = visibleTournaments;
   const friends = state.users.filter((u) => friendIds.includes(u.id));
-  const insights = getUserInsights(state, currentUser.id);
-  const achievements = getAchievementsForUser(state, currentUser.id);
+  const userTeamRows = buildUserTeamRanking(state);
 
   return (
     <section className="stack">
-      <article className="profile-hero card">
-        <div className="avatar big">{currentUser.alias.slice(0, 2).toUpperCase()}</div>
-        <div>
-          <p className="eyebrow">Perfil competitivo</p>
-          <h2>{currentUser.alias}</h2>
-          <p>{currentUser.name} · miembro desde {currentUser.createdAt}</p>
-        </div>
-      </article>
-      <div className="metric-grid">
-        <Metric title="Ranking global" value={`#${row.pos || "-"}`} />
-        <Metric title="Partidos" value={row.pj || 0} />
-        <Metric title="Títulos" value={row.titles || 0} />
-        <Metric title="Rendimiento" value={`${row.performance || 0}%`} />
-      </div>
-      <div className="grid-2">
-        <article className="card">
-          <h3>Identidad Chute</h3>
-          <div className="profile-lines">
-            <span>Equipo más usado <strong>{insights.favoriteTeam}</strong></span>
-            <span>Mejor rendimiento <strong>{insights.bestTeam}</strong></span>
-            <span>Rival más frecuente <strong>{insights.topRival}</strong></span>
-            <span>Score competitivo <strong>{row.score || 0}</strong></span>
-          </div>
-        </article>
-        <article className="card">
-          <h3>Amigos</h3>
-          <div className="list spaced">{friends.map((u) => <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span></div>)}{!friends.length && <p className="empty">Sin amigos aceptados.</p>}</div>
-        </article>
-      </div>
-      <article className="card">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">Insignias</p>
-            <h3>Logros competitivos</h3>
-          </div>
-        </div>
-        <div className="achievement-strip wrap">
-          {achievements.map((a) => <span key={a.id} className={a.unlocked ? "achievement on" : "achievement"}><strong>{a.title}</strong><small>{a.description}</small></span>)}
-        </div>
-      </article>
+      <UserProfilePanel state={state} user={currentUser} ranking={row} userTeamRanking={userTeamRows} />
 
       <div className="grid-2">
         <article className="card">
@@ -5570,15 +5766,10 @@ function Profile({ state, currentUser, friendIds, rankingUsers, openTournament, 
           </div>
         </article>
         <article className="card">
-          <h3>Últimos partidos</h3>
+          <h3>Amigos</h3>
           <div className="list spaced">
-            {insights.recent.map(({ tournament, match, opponentId }, index) => {
-              const isHome = match.homeUserId === currentUser.id;
-              const myGoals = isHome ? match.homeGoals : match.awayGoals;
-              const opGoals = isHome ? match.awayGoals : match.homeGoals;
-              return <div className="list-row" key={`${match.id}_${index}`}><span><strong>{currentUser.alias} {myGoals}-{opGoals} {getUser(state, opponentId).alias}</strong><small>{tournament} · {match.round}</small></span></div>;
-            })}
-            {!insights.recent.length && <p className="empty">Sin partidos registrados.</p>}
+            {friends.map((u) => <div className="list-row" key={u.id}><span><strong>{u.alias}</strong><small>{u.name}</small></span></div>)}
+            {!friends.length && <p className="empty">Sin amigos aceptados.</p>}
           </div>
         </article>
       </div>
