@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.7.4";
+const APP_VERSION = "1.8.0";
 const DATA_VERSION = 6;
 
 
@@ -538,103 +538,19 @@ function makeInviteCode(name = "CHUTE"){
   return `${base}-${suffix}`;
 }
 
-const DEMO_PARTICIPANTS = [
-  { userId: "u_carlos", teamId: "trucha", joinedAt: today() },
-  { userId: "u_felipe", teamId: "perla", joinedAt: today() },
-  { userId: "u_martin", teamId: "pantera", joinedAt: today() },
-  { userId: "u_wladi", teamId: "guanaco", joinedAt: today() }
-];
-
-const seedState = () => {
-  const users = [
-    { id: "u_carlos", name: "Carlos", alias: "Carloco", createdAt: today() },
-    { id: "u_felipe", name: "Felipe", alias: "FelipeChute", createdAt: today() },
-    { id: "u_martin", name: "Martín", alias: "PanteraFC", createdAt: today() },
-    { id: "u_wladi", name: "Wladi", alias: "WladiGol", createdAt: today() },
-    { id: "u_cristi", name: "Cristi", alias: "CristiGol", createdAt: today() }
-  ];
-
-  const matches = roundRobin(DEMO_PARTICIPANTS).map((m, index) => ({
-    ...m,
-    homeGoals: [3, 1, 2, 0, null, null][index] ?? null,
-    awayGoals: [1, 1, 0, 2, null, null][index] ?? null,
-    resultStatus: ["confirmed", "confirmed", "confirmed", "confirmed", null, null][index] ?? null,
-    resultProposal: null
-  }));
-
-  const tournament = {
-    id: "t_apertura_demo",
-    name: "Apertura Chute Demo",
-    description: "Torneo demo para probar sala, tabla, resultados y ranking.",
-    format: "league",
-    visibility: "private",
-    status: "active",
-    allowDuplicateTeams: false,
-    teamSelectionMode: "fixed",
-    fixtureMode: "single_leg",
-    thirdPlaceEnabled: false,
-    inviteCode: "APERT-2026",
-    season: CURRENT_SEASON,
-    creatorId: "u_carlos",
-    createdAt: today(),
-    participants: DEMO_PARTICIPANTS,
-    matches,
-    championUserId: null,
-    championTeamId: null,
-    joinRequests: [],
-    activity: [
-      { id: "act_demo_1", type: "created", message: "Carlos creó Apertura Chute Demo.", userId: "u_carlos", createdAt: today() },
-      { id: "act_demo_2", type: "fixture", message: "Se generó el fixture inicial del torneo demo.", userId: "u_carlos", createdAt: today() }
-    ]
-  };
-
-  const preparingTournament = {
-    id: "t_invitaciones_demo",
-    name: "Copa Invitaciones Demo",
-    description: "Ejemplo de torneo en preparación. Cambia a Cristi para aceptar la invitación y elegir equipo.",
-    format: "league",
-    visibility: "private",
-    status: "preparing",
-    allowDuplicateTeams: false,
-    teamSelectionMode: "fixed",
-    fixtureMode: "single_leg",
-    thirdPlaceEnabled: false,
-    inviteCode: "INVIT-2026",
-    season: CURRENT_SEASON,
-    creatorId: "u_carlos",
-    createdAt: today(),
-    participants: [{ userId: "u_carlos", teamId: "polpetta", joinedAt: today() }],
-    matches: [],
-    championUserId: null,
-    championTeamId: null,
-    joinRequests: [
-      { id: "jr_demo_1", userId: "u_wladi", teamId: "guanaco", status: "pending", requestedAt: today(), resolvedAt: null }
-    ],
-    activity: [
-      { id: "act_inv_1", type: "created", message: "Carlos creó Copa Invitaciones Demo.", userId: "u_carlos", createdAt: today() },
-      { id: "act_inv_2", type: "invite", message: "Cristi fue invitada al torneo.", userId: "u_carlos", createdAt: today() }
-    ]
-  };
-
-  return {
-    currentUserId: "u_carlos",
-    currentSeason: CURRENT_SEASON,
-    seasons: [CURRENT_SEASON, "Histórico"],
-    users,
-    friends: [
-      { id: "f_1", requesterId: "u_carlos", receiverId: "u_felipe", status: "accepted", createdAt: today() },
-      { id: "f_2", requesterId: "u_carlos", receiverId: "u_martin", status: "accepted", createdAt: today() },
-      { id: "f_3", requesterId: "u_wladi", receiverId: "u_carlos", status: "pending", createdAt: today() },
-      { id: "f_4", requesterId: "u_carlos", receiverId: "u_cristi", status: "accepted", createdAt: today() }
-    ],
-    invitations: [
-      { id: "i_1", tournamentId: "t_invitaciones_demo", fromUserId: "u_carlos", toUserId: "u_cristi", status: "pending", createdAt: today(), respondedAt: null }
-    ],
-    teams: TEAMS,
-    tournaments: [tournament, preparingTournament],
-    meta: { dataVersion: DATA_VERSION, migratedAt: today(), release: APP_VERSION }
-  };
-};
+const seedState = () => ({
+  currentUserId: "guest_user",
+  currentSeason: CURRENT_SEASON,
+  seasons: [CURRENT_SEASON, "Histórico"],
+  users: [
+    { id: "guest_user", name: "Jugador invitado", alias: "Jugador", createdAt: today() }
+  ],
+  friends: [],
+  invitations: [],
+  teams: TEAMS,
+  tournaments: [],
+  meta: { dataVersion: DATA_VERSION, migratedAt: today(), release: APP_VERSION }
+});
 
 
 function hydrateTeams(savedTeams){
@@ -1098,6 +1014,46 @@ function isDoubleLegTournament(tournament){
 
 function fixtureModeLabel(tournament){
   return FIXTURE_MODE_LABELS[getFixtureMode(tournament)] || FIXTURE_MODE_LABELS.single_leg;
+}
+
+function fixtureDateLabel(match){
+  const round = String(match?.round || "").trim();
+  const fecha = round.match(/Fecha\s+(\d+)/i);
+  if (fecha) return `Fecha ${fecha[1]}`;
+  if (/tercer lugar/i.test(round)) return "Tercer lugar";
+  if (/final/i.test(round)) return "Final";
+  if (/semifinal/i.test(round)) return "Semifinales";
+  if (/cuartos/i.test(round)) return "Cuartos de final";
+  if (/octavos/i.test(round)) return "Octavos de final";
+  return round || "Fecha por definir";
+}
+
+function fixtureRoundDetail(match){
+  const round = String(match?.round || "").trim();
+  const clean = round.replace(/^Fecha\s+\d+\s*·?\s*/i, "").trim();
+  return clean && clean !== round ? clean : "";
+}
+
+function matchStatusLabel(match){
+  if (!playoffMatchReady(match)) return "Esperando clasificados";
+  if (match.resultStatus === "pending_confirmation") return "Por confirmar";
+  if (match.resultStatus === "rejected") return "Rechazado";
+  if (matchPlayed(match)) return "Confirmado";
+  return "Pendiente";
+}
+
+function groupMatchesByFixtureDate(matches = []){
+  const groups = [];
+  const index = new Map();
+  (matches || []).forEach((match) => {
+    const label = fixtureDateLabel(match);
+    if (!index.has(label)) {
+      index.set(label, { id: label.toLowerCase().replace(/[^a-z0-9]+/gi, "-"), label, matches: [] });
+      groups.push(index.get(label));
+    }
+    index.get(label).matches.push(match);
+  });
+  return groups;
 }
 
 function getParticipantTeamId(tournament, userId){
@@ -2511,9 +2467,9 @@ function App(){
       await refreshCloudTournaments({ silent: true });
       return tournamentId;
     } catch (error) {
-      const rawMessage = error?.message || "No se pudo crear el torneo en Supabase.";
+      const rawMessage = error?.message || "No se pudo crear el torneo.";
       const friendlyMessage = rawMessage.includes("Could not find the function") || rawMessage.includes("create_chute_tournament")
-        ? "Falta ejecutar el SQL de actualización 1.4.2 en Supabase."
+        ? "Falta aplicar una actualización de la base de datos."
         : rawMessage;
       setCloudTournamentsNotice(friendlyMessage);
       return false;
@@ -2738,7 +2694,7 @@ function App(){
       setCloudTournamentsNotice("Fixture guardado en la nube.");
       return true;
     } catch (error) {
-      setCloudTournamentsNotice(error?.message || "No se pudo generar el fixture en Supabase.");
+      setCloudTournamentsNotice(error?.message || "No se pudo generar el fixture.");
       return false;
     } finally {
       setCloudTournamentsLoading(false);
@@ -2982,7 +2938,7 @@ function App(){
   }
 
   async function signInCloud(email, password) {
-    if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
+    if (!supabaseClient) return setCloudNotice("El acceso con cuenta todavía no está disponible.");
     setCloudNotice("");
     setCloudLoading(true);
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -2995,7 +2951,7 @@ function App(){
   }
 
   async function signUpCloud({ email, password, name, alias }) {
-    if (!supabaseClient) return setCloudNotice("La conexión de cuentas todavía no está disponible.");
+    if (!supabaseClient) return setCloudNotice("El acceso con cuenta todavía no está disponible.");
     setCloudNotice("");
     setCloudLoading(true);
     const { data, error } = await supabaseClient.auth.signUp({
@@ -3060,7 +3016,7 @@ function App(){
           <div className="logo">CH</div>
           <div>
             <strong>Chute Plataforma</strong>
-            <span>Torneos, amigos y ranking</span>
+            <span>Torneos y rankings de Chute</span>
           </div>
         </div>
         <nav className="side-nav">
@@ -3078,7 +3034,7 @@ function App(){
       <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Torneos, amigos y ranking</p>
+            <p className="eyebrow">Torneos y rankings de Chute</p>
             <h1>{pageTitle(view)}</h1>
           </div>
           <div className="topbar-actions">
@@ -3129,7 +3085,7 @@ function pageTitle(view){
     ranking: "Ranking Chute",
     equipos: "Equipos oficiales",
     perfil: "Mi perfil competitivo",
-    admin: "Ajustes y respaldo"
+    admin: "Ajustes"
   }[view] || "Chute Plataforma";
 }
 
@@ -3181,7 +3137,7 @@ function CloudAccount({ available, session, profile, loading, notice, onSignIn, 
             <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Ingresar</button>
             <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Crear cuenta</button>
           </div>
-          {!available && <p className="notice warning">La conexión de cuentas aún no está disponible en este entorno.</p>}
+          {!available && <p className="notice warning">El acceso con cuenta aún no está disponible en este entorno.</p>}
           {mode === "register" && (
             <>
               <input placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
@@ -3283,8 +3239,8 @@ function Home({ state, currentUser, rankingUsers, setView, selectedTournament, o
       <div className="hero-panel">
         <div>
           <p className="eyebrow">Plataforma competitiva</p>
-          <h2>Administra torneos, resultados y rankings en un solo lugar.</h2>
-          <p>Crea salas, invita jugadores, registra partidos y convierte cada torneo en historial competitivo.</p>
+          <h2>Organiza torneos, resultados y estadísticas con una experiencia clara y competitiva.</h2>
+          <p>Crea torneos, invita jugadores, registra partidos y conserva el historial competitivo de cada campeonato.</p>
           <div className="actions-row">
             <button className="primary" onClick={() => setView("torneos")}>Crear torneo</button>
             <button className="secondary" onClick={() => setView("torneos")}>Unirse a torneo</button>
@@ -3477,7 +3433,7 @@ function Tournaments({ state, commit, currentUser, selectedTournament, setSelect
             <p>Elige el flujo que quieres abrir.</p>
           </div>
         </div>
-        {cloudMode && <div className="info-note compact"><strong>Torneos en Supabase</strong><span>Las salas, fixture, partidos, resultados, goles y asistencias se guardan en la nube.</span></div>}
+        {cloudMode && <div className="info-note compact"><strong>Torneos sincronizados</strong><span>Las salas, fixture, resultados, goles y asistencias quedan asociados a tu cuenta.</span></div>}
         {cloudNotice && <p className="notice">{cloudNotice}</p>}
         <div className="tournament-action-buttons action-card-grid">
           <button className={`action-card-button primary ${openPanel === "create" ? "open" : ""}`} aria-expanded={openPanel === "create"} onClick={() => togglePanel("create")}>
@@ -4372,25 +4328,19 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
 
       {safeTab === "partidos" && tournament.status !== "preparing" && (
         <div className="tab-panel">
-          <div className="section-head"><div><p className="eyebrow">Fixture</p><h4>Partidos y correcciones</h4></div><span className="muted">{played} jugados · {unplayed} pendientes</span></div>
-          <div className="matches">
-            {tournament.matches.map((m) => (
-              <MatchResultCard
-                key={m.id}
-                state={state}
-                match={m}
-                tournament={tournament}
-                currentUser={currentUser}
-                onSubmit={submitResult}
-                onConfirm={confirmResult}
-                onReject={rejectResult}
-                onClearResult={clearMatchResult}
-                onAddGoal={addGoalEvent}
-                onRemoveGoal={removeGoalEvent}
-                onDownloadMatch={(match) => downloadMatchImage(state, tournament, match)}
-              />
-            ))}
-          </div>
+          <div className="section-head"><div><p className="eyebrow">Fixture</p><h4>Partidos por fecha</h4></div><span className="muted">{played} jugados · {unplayed} pendientes</span></div>
+          <FixtureByDatesPanel
+            state={state}
+            tournament={tournament}
+            currentUser={currentUser}
+            onSubmit={submitResult}
+            onConfirm={confirmResult}
+            onReject={rejectResult}
+            onClearResult={clearMatchResult}
+            onAddGoal={addGoalEvent}
+            onRemoveGoal={removeGoalEvent}
+            onDownloadMatch={(match) => downloadMatchImage(state, tournament, match)}
+          />
         </div>
       )}
     </article>
@@ -4628,6 +4578,99 @@ function TournamentActivity({ tournament, state }){
   );
 }
 
+function FixtureByDatesPanel({ state, tournament, currentUser, onSubmit, onConfirm, onReject, onClearResult, onAddGoal, onRemoveGoal, onDownloadMatch }){
+  const groups = groupMatchesByFixtureDate(tournament.matches || []);
+  const [openGroups, setOpenGroups] = useState(() => new Set(groups.slice(0, 1).map((group) => group.id)));
+  const [openMatches, setOpenMatches] = useState(() => new Set());
+
+  function toggleGroup(groupId){
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }
+
+  function toggleMatch(matchId){
+    setOpenMatches((prev) => {
+      const next = new Set(prev);
+      if (next.has(matchId)) next.delete(matchId);
+      else next.add(matchId);
+      return next;
+    });
+  }
+
+  if (!groups.length) return <p className="empty">Aún no hay partidos generados.</p>;
+
+  return (
+    <div className="fixture-date-list">
+      {groups.map((group) => {
+        const expanded = openGroups.has(group.id);
+        const playedCount = group.matches.filter(matchPlayed).length;
+        return (
+          <section className="fixture-date-card" key={group.id}>
+            <button className="fixture-date-head" type="button" onClick={() => toggleGroup(group.id)}>
+              <span>
+                <strong>{group.label}</strong>
+                <small>{playedCount}/{group.matches.length} partidos jugados</small>
+              </span>
+              <b>{expanded ? "Ocultar" : "Ver fecha"}</b>
+            </button>
+            {expanded && (
+              <div className="fixture-date-body">
+                {group.matches.map((match) => {
+                  const matchOpen = openMatches.has(match.id);
+                  const homeTeam = getTeam(state, getMatchTeamId(tournament, match, "home"));
+                  const awayTeam = getTeam(state, getMatchTeamId(tournament, match, "away"));
+                  const detail = fixtureRoundDetail(match);
+                  return (
+                    <div className="fixture-match-shell" key={match.id}>
+                      <div className="fixture-match-summary">
+                        <div className="fixture-club left">
+                          <TeamLogo team={homeTeam} size="xs" />
+                          <span><strong>{getUser(state, match.homeUserId).alias}</strong><small>{homeTeam.short}</small></span>
+                        </div>
+                        <div className="fixture-score-pill">
+                          <strong>{matchPlayed(match) ? `${match.homeGoals} - ${match.awayGoals}` : "vs"}</strong>
+                          <small>{detail || matchStatusLabel(match)}</small>
+                        </div>
+                        <div className="fixture-club right">
+                          <span><strong>{getUser(state, match.awayUserId).alias}</strong><small>{awayTeam.short}</small></span>
+                          <TeamLogo team={awayTeam} size="xs" />
+                        </div>
+                        <div className="fixture-summary-actions">
+                          <span className={`result-status ${match.resultStatus || (matchPlayed(match) ? "confirmed" : "pending")}`}>{matchStatusLabel(match)}</span>
+                          <button className="secondary small" type="button" onClick={() => toggleMatch(match.id)}>{matchOpen ? "Ocultar" : "Ver más"}</button>
+                        </div>
+                      </div>
+                      {matchOpen && (
+                        <MatchResultCard
+                          state={state}
+                          match={match}
+                          tournament={tournament}
+                          currentUser={currentUser}
+                          onSubmit={onSubmit}
+                          onConfirm={onConfirm}
+                          onReject={onReject}
+                          onClearResult={onClearResult}
+                          onAddGoal={onAddGoal}
+                          onRemoveGoal={onRemoveGoal}
+                          onDownloadMatch={onDownloadMatch}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onConfirm, onReject, onClearResult, onAddGoal, onRemoveGoal, onDownloadMatch }){
   const [homeGoals, setHomeGoals] = useState(match.resultProposal?.homeGoals ?? match.homeGoals ?? "");
   const [awayGoals, setAwayGoals] = useState(match.resultProposal?.awayGoals ?? match.awayGoals ?? "");
@@ -4682,7 +4725,7 @@ function MatchResultCard({ state, match, tournament, currentUser, onSubmit, onCo
               <option value={match.awayUserId}>{getUser(state, match.awayUserId).alias}</option>
             </select>
           </label>
-          <small>Solo para definición de playoff.</small>
+          
         </div>
       )}
       {freeTeams && canSubmit && tournament.status !== "closed" && tournament.status !== "paused" && (
@@ -4894,7 +4937,7 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
           <div className="section-heading compact">
             <div>
               <h3>{cloudMode ? "Buscar usuarios registrados" : "Buscar usuarios"}</h3>
-              <p>{cloudMode ? "Busca por alias o nombre público." : "Busca entre los usuarios locales de prueba."}</p>
+              <p>{cloudMode ? "Busca por alias o nombre público." : "Busca entre los usuarios disponibles."}</p>
             </div>
             {cloudMode && <button className="ghost small" onClick={() => onCloudRefresh?.()} disabled={cloudLoading}>{cloudLoading ? "Actualizando..." : "Actualizar"}</button>}
           </div>
@@ -4922,7 +4965,7 @@ function Friends({ state, commit, currentUser, friendIds, cloudAvailable, cloudS
           <div className="section-heading compact">
             <div>
               <h3>Mis amigos</h3>
-              <p>{cloudMode ? "Amigos vinculados a tu cuenta." : "Amigos del modo local."}</p>
+              <p>{cloudMode ? "Amigos vinculados a tu cuenta." : "Amigos guardados en este dispositivo."}</p>
             </div>
           </div>
           <div className="list spaced">
@@ -5440,10 +5483,10 @@ function Admin({ state, commit }){
 
   function reset(){
     setConfirmAction({
-      title: "Restaurar datos de ejemplo",
-      description: "Se reemplazarán los datos actuales por los datos de ejemplo incluidos en Chute. Descarga un respaldo antes si quieres conservar tu avance.",
+      title: "Reiniciar información",
+      description: "Se reemplazará la información actual por una instalación limpia. Descarga un respaldo antes si quieres conservar tu avance.",
       intent: "warning",
-      confirmLabel: "Restaurar datos",
+      confirmLabel: "Reiniciar",
       onConfirm: () => { commit(seedState()); setConfirmAction(null); }
     });
   }
@@ -5451,7 +5494,7 @@ function Admin({ state, commit }){
   function clearLocalData(){
     setConfirmAction({
       title: "Reiniciar datos",
-      description: "Se borrarán los datos guardados de Chute en este navegador y se cargarán datos de ejemplo. Esta acción no se puede deshacer si no descargaste un respaldo.",
+      description: "Se borrarán los datos guardados de Chute en este navegador y se cargará una instalación limpia. Esta acción no se puede deshacer si no descargaste un respaldo.",
       intent: "danger",
       confirmLabel: "Reiniciar",
       onConfirm: () => {
@@ -5523,7 +5566,7 @@ function Admin({ state, commit }){
         <div className="backup-actions">
           <button className="primary" onClick={exportJson}>Descargar respaldo</button>
           <button className="secondary" onClick={copyJson}>Copiar respaldo</button>
-          <button className="ghost" onClick={reset}>Restaurar ejemplo</button>
+          <button className="ghost" onClick={reset}>Reiniciar datos</button>
           <button className="danger" onClick={clearLocalData}>Borrar información</button>
         </div>
         <label>Importar respaldo JSON<textarea value={payload} onChange={(e) => setPayload(e.target.value)} placeholder="Pega aquí el contenido de un respaldo JSON exportado desde Chute" /></label>

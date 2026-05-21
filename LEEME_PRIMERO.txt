@@ -19,3 +19,9 @@ npm run verify
 ## Actualización 1.7
 
 Antes de usar playoffs en Supabase, ejecuta `supabase/16_playoffs_1_7.sql`. La eliminación directa requiere 2, 4, 8 o 16 participantes. Si un partido de playoff termina empatado, debes elegir ganador por penales; esos penales no cuentan como goles normales.
+
+
+VERSION 1.8.0
+- No requiere ejecutar SQL nuevo.
+- Reemplaza los archivos, ejecuta subir-chute-github.bat y espera el deploy de Vercel.
+- El fixture ahora se muestra agrupado por fechas. Para editar un partido, abre la fecha y presiona Ver más.

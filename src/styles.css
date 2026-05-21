@@ -2299,3 +2299,197 @@ tr:last-child td { border-bottom: 0; }
     grid-template-columns: 1fr;
   }
 }
+
+/* v1.8 · producto final y fixture por fechas */
+.app-shell {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(94,211,255,.12), transparent 30%),
+    radial-gradient(circle at 88% 2%, rgba(124,92,255,.10), transparent 28%);
+}
+.card, .hero-panel, .metric, .team-card, .tournament-detail {
+  backdrop-filter: blur(18px);
+}
+.hero-panel {
+  position: relative;
+  overflow: hidden;
+}
+.hero-panel::after {
+  content: "";
+  position: absolute;
+  inset: auto -90px -120px auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(94,211,255,.18), rgba(124,92,255,.14));
+  pointer-events: none;
+}
+.hero-panel > * { position: relative; z-index: 1; }
+.card, .hero-panel, .metric, .team-card, .match-card, .fixture-date-card {
+  border-color: rgba(255,255,255,.12);
+}
+.theme-light .card, .theme-light .hero-panel, .theme-light .metric, .theme-light .team-card, .theme-light .match-card, .theme-light .fixture-date-card {
+  border-color: rgba(15,23,42,.10);
+}
+.fixture-date-list {
+  display: grid;
+  gap: 16px;
+}
+.fixture-date-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+  overflow: hidden;
+  box-shadow: 0 16px 46px rgba(0,0,0,.13);
+}
+.fixture-date-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px;
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(94,211,255,.11), rgba(124,92,255,.09));
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  text-align: left;
+}
+.fixture-date-head strong,
+.fixture-date-head small {
+  display: block;
+}
+.fixture-date-head strong {
+  font-size: 1.05rem;
+  letter-spacing: -.02em;
+}
+.fixture-date-head small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.fixture-date-head b {
+  color: var(--primary);
+  font-size: .84rem;
+  white-space: nowrap;
+}
+.fixture-date-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+.fixture-match-shell {
+  display: grid;
+  gap: 10px;
+}
+.fixture-match-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) auto minmax(0, 1.1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255,255,255,.045);
+}
+.fixture-club {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.fixture-club.right {
+  justify-content: flex-end;
+  text-align: right;
+}
+.fixture-club span,
+.fixture-club strong,
+.fixture-club small {
+  min-width: 0;
+  display: block;
+}
+.fixture-club strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fixture-club small {
+  color: var(--muted);
+  font-size: .78rem;
+  margin-top: 2px;
+}
+.fixture-score-pill {
+  min-width: 92px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  text-align: center;
+  background: rgba(94,211,255,.12);
+  border: 1px solid rgba(94,211,255,.16);
+}
+.fixture-score-pill strong,
+.fixture-score-pill small {
+  display: block;
+}
+.fixture-score-pill strong {
+  font-size: 1.05rem;
+  letter-spacing: -.02em;
+}
+.fixture-score-pill small {
+  color: var(--muted);
+  font-size: .72rem;
+  margin-top: 2px;
+}
+.fixture-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.result-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 900;
+  color: var(--muted);
+  background: rgba(255,255,255,.055);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.result-status.confirmed { color: var(--ok); border-color: rgba(85,230,165,.28); background: rgba(85,230,165,.08); }
+.result-status.pending_confirmation { color: var(--warn); border-color: rgba(255,209,102,.28); background: rgba(255,209,102,.08); }
+.result-status.rejected { color: var(--danger); border-color: rgba(255,107,107,.28); background: rgba(255,107,107,.08); }
+.fixture-match-shell .match-card {
+  margin-left: 12px;
+  border-radius: 22px;
+  background: rgba(255,255,255,.035);
+}
+.theme-light .fixture-date-card,
+.theme-light .fixture-match-summary,
+.theme-light .fixture-match-shell .match-card {
+  background: rgba(255,255,255,.76);
+}
+.theme-light .fixture-date-head {
+  background: linear-gradient(135deg, rgba(33,119,255,.10), rgba(119,89,255,.08));
+  border-bottom-color: rgba(15,23,42,.08);
+}
+@media (max-width: 860px) {
+  .fixture-match-summary {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .fixture-club.right {
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .fixture-summary-actions {
+    justify-content: space-between;
+  }
+  .fixture-score-pill {
+    width: 100%;
+  }
+  .fixture-match-shell .match-card {
+    margin-left: 0;
+  }
+}

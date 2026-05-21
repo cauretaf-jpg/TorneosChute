@@ -1,4 +1,14 @@
 
+## 1.8.0 · Producto final y fixture por fechas
+
+- Se limpió el estado inicial para evitar datos personales o torneos demo en el producto final.
+- Se ajustaron textos visibles para evitar referencias técnicas innecesarias.
+- Se agrupó el fixture por fechas.
+- Cada partido queda resumido y se edita con el botón Ver más.
+- Se mantuvo la edición completa de marcador, equipos, goles y asistencias.
+- No requiere SQL nuevo.
+
+
 
 ## 1.7.4 - Finalización robusta de torneos
 
