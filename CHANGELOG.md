@@ -1,3 +1,14 @@
+# Changelog
+
+## 1.9.0 - Central del Torneo
+- Agrega una Central del Campeonato dentro del resumen de cada torneo.
+- Muestra líder actual, fecha actual, progreso de partidos, goleador y mejor defensa.
+- Agrega tarjeta de partido destacado con marcador tipo transmisión deportiva.
+- Agrega historial resumido entre jugadores dentro del partido destacado.
+- Agrega panel de fecha actual con estado de cada partido.
+- Mejora accesos rápidos a fixture, tabla, perfil y administración.
+- Mantiene intactas las reglas de fixture, Supabase y cierre de torneos.
+
 
 ## 1.8.5 · Inicio tipo producto final
 

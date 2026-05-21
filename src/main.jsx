@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.8.5";
+const APP_VERSION = "1.9.0";
 const DATA_VERSION = 6;
 
 
@@ -4694,20 +4694,32 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
 
       {safeTab === "resumen" && (
         <div className="tab-panel">
+          <TournamentCentralPanel
+            state={state}
+            tournament={tournament}
+            standings={standings}
+            scorerRows={scorerRows}
+            assistRows={assistRows}
+            played={played}
+            unplayed={unplayed}
+            pendingResults={pendingResults}
+            goalIssueRows={goalIssueRows}
+            finishBlockReason={finishBlockReason}
+            isCreator={isCreator}
+            onGoTo={setRoomTab}
+            onDownloadFixture={() => downloadFixtureImage(state, tournament)}
+            onDownloadStandings={() => downloadStandingsImage(state, tournament, standings)}
+            onDownloadScorers={() => downloadScorersImage(state, tournament, scorerRows, assistRows)}
+            onDownloadChampion={() => downloadChampionImage(state, tournament, finishSummary)}
+          />
           {tournament.status === "closed" && (
             <TournamentClosedOverview state={state} tournament={tournament} history={tournamentHistory} standings={standings} scorerRows={scorerRows} assistRows={assistRows} onDownloadChampion={() => downloadChampionImage(state, tournament, finishSummary)} />
           )}
-          {nextMatch && (
-            <div className="next-match">
-              <p className="eyebrow">Próximo partido</p>
-              <strong>{getUser(state, nextMatch.homeUserId).alias} vs {getUser(state, nextMatch.awayUserId).alias}</strong>
-              <span>{nextMatch.homeTeamId ? getTeam(state, nextMatch.homeTeamId).short : "Equipo por elegir"} vs {nextMatch.awayTeamId ? getTeam(state, nextMatch.awayTeamId).short : "Equipo por elegir"} · {nextMatch.round}</span>
-            </div>
-          )}
-          <div className="share-actions-grid">
+          <div className="share-actions-grid share-actions-grid-compact">
             <button className="secondary small" onClick={() => downloadFixtureImage(state, tournament)}>Imagen fixture</button>
             {standings.length > 0 && <button className="secondary small" onClick={() => downloadStandingsImage(state, tournament, standings)}>Imagen tabla</button>}
             {(scorerRows.length > 0 || assistRows.length > 0) && <button className="secondary small" onClick={() => downloadScorersImage(state, tournament, scorerRows, assistRows)}>Imagen goleadores</button>}
+            {tournament.championUserId && <button className="secondary small" onClick={() => downloadChampionImage(state, tournament, finishSummary)}>Imagen campeón</button>}
           </div>
           <div className="room-grid">
             <section>
@@ -4832,6 +4844,192 @@ function TournamentRoom({ state, commit, tournament, currentUser, cloudMode = fa
   );
 }
 
+
+
+function getCurrentFixtureGroup(tournament){
+  const groups = groupMatchesByFixtureDate(tournament.matches || []);
+  if (!groups.length) return null;
+  return groups.find((group) => group.matches.some((match) => !matchPlayed(match))) || groups[groups.length - 1];
+}
+
+function getFeaturedMatch(tournament){
+  const currentGroup = getCurrentFixtureGroup(tournament);
+  const groupMatches = currentGroup?.matches || [];
+  return groupMatches.find((match) => !matchPlayed(match)) || groupMatches.find(matchPlayed) || (tournament.matches || []).find((match) => !matchPlayed(match)) || (tournament.matches || [])[0] || null;
+}
+
+function buildHeadToHeadSummary(state, tournament, match){
+  if (!match) return null;
+  const homeId = match.homeUserId;
+  const awayId = match.awayUserId;
+  const rows = (tournament.matches || []).filter((item) => matchPlayed(item) && [item.homeUserId, item.awayUserId].includes(homeId) && [item.homeUserId, item.awayUserId].includes(awayId));
+  const summary = {
+    total: rows.length,
+    homeWins: 0,
+    awayWins: 0,
+    draws: 0,
+    homeGoals: 0,
+    awayGoals: 0,
+    last: null,
+    biggest: null
+  };
+  rows.forEach((item) => {
+    const homeAsHome = item.homeUserId === homeId;
+    const goalsA = homeAsHome ? Number(item.homeGoals || 0) : Number(item.awayGoals || 0);
+    const goalsB = homeAsHome ? Number(item.awayGoals || 0) : Number(item.homeGoals || 0);
+    summary.homeGoals += goalsA;
+    summary.awayGoals += goalsB;
+    if (goalsA > goalsB) summary.homeWins += 1;
+    else if (goalsA < goalsB) summary.awayWins += 1;
+    else summary.draws += 1;
+    const label = `${getUser(state, item.homeUserId).alias} ${item.homeGoals}-${item.awayGoals} ${getUser(state, item.awayUserId).alias}`;
+    summary.last = { ...item, label };
+    const diff = Math.abs(goalsA - goalsB);
+    if (!summary.biggest || diff > summary.biggest.diff) summary.biggest = { ...item, diff, label };
+  });
+  return summary;
+}
+
+function TournamentCentralPanel({ state, tournament, standings, scorerRows, assistRows, played, unplayed, pendingResults, goalIssueRows, finishBlockReason, isCreator, onGoTo, onDownloadFixture, onDownloadStandings, onDownloadScorers, onDownloadChampion }){
+  const leader = standings[0] || null;
+  const currentGroup = getCurrentFixtureGroup(tournament);
+  const featuredMatch = getFeaturedMatch(tournament);
+  const groupPlayed = currentGroup ? currentGroup.matches.filter(matchPlayed).length : 0;
+  const groupTotal = currentGroup ? currentGroup.matches.length : 0;
+  const groupProgress = groupTotal ? Math.round((groupPlayed / groupTotal) * 100) : 0;
+  const bestDefense = standings.filter((row) => row.pj > 0).sort((a, b) => a.gc - b.gc || b.pts - a.pts)[0] || null;
+  const topScorer = scorerRows[0] || null;
+  const topAssist = assistRows[0] || null;
+  const featuredHomeTeam = featuredMatch ? getTeam(state, getMatchTeamId(tournament, featuredMatch, "home")) : null;
+  const featuredAwayTeam = featuredMatch ? getTeam(state, getMatchTeamId(tournament, featuredMatch, "away")) : null;
+  const h2h = buildHeadToHeadSummary(state, tournament, featuredMatch);
+  const statusText = STATUS_LABELS[tournament.status] || "Torneo";
+  const canShowFinalImage = tournament.status === "closed" || Boolean(tournament.championUserId);
+  return (
+    <section className={`tournament-central ${tournament.status}`}>
+      <div className="central-hero-card">
+        <div>
+          <p className="eyebrow">Central del campeonato</p>
+          <h2>{tournament.name}</h2>
+          <p>{formatLabel(tournament.format)} · {teamSelectionLabel(tournament)} · {fixtureModeLabel(tournament)} · {tournament.season || state.currentSeason}</p>
+        </div>
+        <div className="central-hero-status">
+          <span className={`status-pill ${tournament.status}`}>{statusText}</span>
+          <strong>{played}/{played + unplayed}</strong>
+          <small>partidos jugados</small>
+        </div>
+      </div>
+
+      <div className="central-metrics-grid">
+        <span>Líder actual <strong>{leader?.name || "Sin líder"}</strong><small>{leader ? `${leader.pts} pts · DG ${leader.dg}` : "Genera fixture y registra resultados"}</small></span>
+        <span>Fecha actual <strong>{currentGroup?.label || "Sin fixture"}</strong><small>{groupTotal ? `${groupPlayed} de ${groupTotal} partidos · ${groupProgress}%` : "Pendiente de generar"}</small></span>
+        <span>Goleador <strong>{topScorer?.playerName || "Sin datos"}</strong><small>{topScorer ? `${topScorer.goals} goles · ${topScorer.teamName}` : "Registra goles para activar ranking"}</small></span>
+        <span>Mejor defensa <strong>{bestDefense?.teamName || "Sin datos"}</strong><small>{bestDefense ? `${bestDefense.gc} GC · ${bestDefense.performance}%` : "Aparecerá con partidos jugados"}</small></span>
+      </div>
+
+      <div className="central-action-row">
+        <button className="primary small" type="button" onClick={() => onGoTo?.(tournament.status === "preparing" ? "admin" : "partidos")}>{tournament.status === "preparing" ? "Preparar fixture" : "Ver próxima fecha"}</button>
+        <button className="secondary small" type="button" onClick={() => onGoTo?.("tabla")} disabled={!standings.length}>Ver tabla</button>
+        <button className="secondary small" type="button" onClick={() => onGoTo?.("perfil")}>Perfil del torneo</button>
+        {isCreator && tournament.status !== "closed" && <button className="ghost small" type="button" onClick={() => onGoTo?.("admin")}>Administración</button>}
+      </div>
+
+      {currentGroup && <CurrentRoundPanel state={state} tournament={tournament} group={currentGroup} onGoTo={onGoTo} />}
+
+      {featuredMatch && (
+        <article className="central-match-card">
+          <div className="section-head compact-head">
+            <div>
+              <p className="eyebrow">Partido destacado</p>
+              <h4>{getUser(state, featuredMatch.homeUserId).alias} vs {getUser(state, featuredMatch.awayUserId).alias}</h4>
+            </div>
+            <span className={`result-status ${featuredMatch.resultStatus || (matchPlayed(featuredMatch) ? "confirmed" : "pending")}`}>{matchStatusLabel(featuredMatch)}</span>
+          </div>
+          <div className="central-scoreboard">
+            <div className="scoreboard-side">
+              <TeamLogo team={featuredHomeTeam} size="sm" />
+              <strong>{getUser(state, featuredMatch.homeUserId).alias}</strong>
+              <small>{featuredHomeTeam?.short || "Equipo por elegir"}</small>
+            </div>
+            <div className="scoreboard-result">
+              <strong>{matchPlayed(featuredMatch) ? `${featuredMatch.homeGoals} - ${featuredMatch.awayGoals}` : "VS"}</strong>
+              <small>{fixtureDateLabel(featuredMatch)} · {fixtureRoundDetail(featuredMatch) || featuredMatch.round}</small>
+            </div>
+            <div className="scoreboard-side away">
+              <TeamLogo team={featuredAwayTeam} size="sm" />
+              <strong>{getUser(state, featuredMatch.awayUserId).alias}</strong>
+              <small>{featuredAwayTeam?.short || "Equipo por elegir"}</small>
+            </div>
+          </div>
+          <HeadToHeadMini state={state} match={featuredMatch} summary={h2h} />
+          <div className="actions-row compact right"><button className="secondary small" type="button" onClick={() => onGoTo?.("partidos")}>Abrir fixture</button></div>
+        </article>
+      )}
+
+      <div className="central-alert-grid">
+        <span className={pendingResults ? "needs-action" : "ok"}>Resultados por revisar <strong>{pendingResults}</strong></span>
+        <span className={goalIssueRows.length ? "needs-action" : "ok"}>Validaciones <strong>{goalIssueRows.length}</strong></span>
+        <span className={finishBlockReason ? "needs-action" : "ok"}>Cierre del torneo <strong>{finishBlockReason || "Listo"}</strong></span>
+        <span>Máximo asistidor <strong>{topAssist?.playerName || "Sin datos"}</strong></span>
+      </div>
+
+      <div className="central-share-panel">
+        <div><strong>Material para compartir</strong><small>Descarga imágenes del torneo para WhatsApp o redes.</small></div>
+        <div className="actions-row compact">
+          <button className="secondary small" type="button" onClick={onDownloadFixture}>Fixture</button>
+          {standings.length > 0 && <button className="secondary small" type="button" onClick={onDownloadStandings}>Tabla</button>}
+          {(scorerRows.length > 0 || assistRows.length > 0) && <button className="secondary small" type="button" onClick={onDownloadScorers}>Goleadores</button>}
+          {canShowFinalImage && <button className="primary small" type="button" onClick={onDownloadChampion}>Campeón</button>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CurrentRoundPanel({ state, tournament, group, onGoTo }){
+  const played = group.matches.filter(matchPlayed).length;
+  const total = group.matches.length;
+  return (
+    <section className="current-round-panel">
+      <div className="section-head compact-head">
+        <div>
+          <p className="eyebrow">Fecha actual</p>
+          <h4>{group.label}</h4>
+        </div>
+        <span className="round-progress-pill">{played}/{total} jugados</span>
+      </div>
+      <div className="current-round-list">
+        {group.matches.slice(0, 5).map((match) => {
+          const homeTeam = getTeam(state, getMatchTeamId(tournament, match, "home"));
+          const awayTeam = getTeam(state, getMatchTeamId(tournament, match, "away"));
+          return (
+            <div className="current-round-row" key={match.id}>
+              <span><strong>{getUser(state, match.homeUserId).alias}</strong><small>{homeTeam?.short || "Equipo por elegir"}</small></span>
+              <b>{matchPlayed(match) ? `${match.homeGoals} - ${match.awayGoals}` : "vs"}</b>
+              <span><strong>{getUser(state, match.awayUserId).alias}</strong><small>{awayTeam?.short || "Equipo por elegir"}</small></span>
+              <em>{matchStatusLabel(match)}</em>
+            </div>
+          );
+        })}
+      </div>
+      {group.matches.length > 5 && <p className="hint">Se muestran 5 partidos. Abre el fixture para ver la fecha completa.</p>}
+      <div className="actions-row compact right"><button className="ghost small" type="button" onClick={() => onGoTo?.("partidos")}>Ver fecha completa</button></div>
+    </section>
+  );
+}
+
+function HeadToHeadMini({ state, match, summary }){
+  if (!match || !summary || !summary.total) return <p className="hint h2h-empty">Este cruce todavía no tiene historial registrado.</p>;
+  return (
+    <div className="head-to-head-mini">
+      <span><small>Historial</small><strong>{summary.total}</strong></span>
+      <span><small>{getUser(state, match.homeUserId).alias}</small><strong>{summary.homeWins}</strong></span>
+      <span><small>Empates</small><strong>{summary.draws}</strong></span>
+      <span><small>{getUser(state, match.awayUserId).alias}</small><strong>{summary.awayWins}</strong></span>
+      <span><small>Último</small><strong>{summary.last?.label || "Sin dato"}</strong></span>
+    </div>
+  );
+}
 
 function TournamentStatusGuide({ tournament, isCreator, pendingJoinRequests, pendingResults, unplayed, finishBlockReason }){
   let title = "Torneo en preparación";

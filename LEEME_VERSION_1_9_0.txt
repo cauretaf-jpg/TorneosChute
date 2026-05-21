@@ -1,0 +1,27 @@
+CHUTE PLATAFORMA 1.9.0 - CENTRAL DEL TORNEO
+
+Esta carpeta es una versión completa basada en PaginaChute.zip.
+
+Qué trae:
+- Nueva Central del Campeonato dentro de cada torneo.
+- Fecha actual con progreso de partidos.
+- Partido destacado con marcador visual.
+- Historial breve entre jugadores del partido destacado.
+- Accesos rápidos a fixture, tabla, perfil, administración e imágenes.
+
+Cómo probar:
+1) Copia o descomprime esta carpeta como:
+   C:\Users\caure\Desktop\Paginas\PaginaChute
+
+2) Ejecuta:
+   iniciar-chute-plataforma.bat
+
+O por PowerShell:
+   cd "C:\Users\caure\Desktop\Paginas\PaginaChute"
+   npm run dev
+
+Importante:
+- No se cambió la lógica de Supabase.
+- No se cambió la lógica de cierre de torneos.
+- No se cambió la generación de fixture.
+- Prueba localmente antes de ejecutar subir-chute-github.bat.
