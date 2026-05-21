@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 const DATA_VERSION = 6;
 
 
@@ -150,6 +150,96 @@ function cloudActivityToLocal(row) {
     createdAt: (row.created_at || new Date().toISOString()).slice(0, 10),
     cloud: true
   };
+}
+
+
+function numberValue(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeCloudUserRanking(rows = []) {
+  return rows.map((row, index) => ({
+    pos: numberValue(row.pos, index + 1),
+    userId: row.user_id,
+    name: row.name || "Jugador",
+    tournaments: numberValue(row.tournaments),
+    pj: numberValue(row.pj),
+    pg: numberValue(row.pg),
+    pe: numberValue(row.pe),
+    pp: numberValue(row.pp),
+    gf: numberValue(row.gf),
+    gc: numberValue(row.gc),
+    dg: numberValue(row.dg),
+    pts: numberValue(row.pts),
+    titles: numberValue(row.titles),
+    performance: numberValue(row.performance),
+    score: numberValue(row.score),
+    status: row.status || (numberValue(row.pj) >= 5 ? "Clasificado" : "En clasificación"),
+    cloud: true
+  }));
+}
+
+function normalizeCloudTeamRanking(rows = []) {
+  return rows.map((row, index) => ({
+    pos: numberValue(row.pos, index + 1),
+    teamId: row.team_id,
+    name: row.name || row.team_id || "Equipo",
+    tournaments: numberValue(row.tournaments),
+    pj: numberValue(row.pj),
+    pg: numberValue(row.pg),
+    pe: numberValue(row.pe),
+    pp: numberValue(row.pp),
+    gf: numberValue(row.gf),
+    gc: numberValue(row.gc),
+    dg: numberValue(row.dg),
+    pts: numberValue(row.pts),
+    titles: numberValue(row.titles),
+    performance: numberValue(row.performance),
+    score: numberValue(row.score),
+    cloud: true
+  }));
+}
+
+function normalizeCloudUserTeamRanking(rows = []) {
+  return rows.map((row, index) => ({
+    pos: numberValue(row.pos, index + 1),
+    key: `${row.user_id}_${row.team_id}`,
+    userId: row.user_id,
+    teamId: row.team_id,
+    userName: row.user_name || "Jugador",
+    teamName: row.team_name || row.team_id || "Equipo",
+    name: `${row.user_name || "Jugador"} + ${row.team_name || row.team_id || "Equipo"}`,
+    tournaments: numberValue(row.tournaments),
+    pj: numberValue(row.pj),
+    pg: numberValue(row.pg),
+    pe: numberValue(row.pe),
+    pp: numberValue(row.pp),
+    gf: numberValue(row.gf),
+    gc: numberValue(row.gc),
+    dg: numberValue(row.dg),
+    pts: numberValue(row.pts),
+    titles: numberValue(row.titles),
+    performance: numberValue(row.performance),
+    score: numberValue(row.score),
+    cloud: true
+  }));
+}
+
+function normalizeCloudPlayerRanking(rows = []) {
+  return rows.map((row, index) => ({
+    pos: numberValue(row.pos, index + 1),
+    key: `${row.team_id}_${row.player_name}`,
+    playerName: row.player_name || "Jugador",
+    teamId: row.team_id,
+    teamName: row.team_name || row.team_id || "Equipo",
+    goals: numberValue(row.goals),
+    assists: numberValue(row.assists),
+    contributions: numberValue(row.contributions, numberValue(row.goals) + numberValue(row.assists)),
+    tournaments: numberValue(row.tournaments),
+    last: row.last || "Sin registro",
+    cloud: true
+  }));
 }
 
 function cleanSearchTerm(value = "") {
@@ -1567,6 +1657,9 @@ function App(){
   const [cloudFriendsNotice, setCloudFriendsNotice] = useState("");
   const [cloudTournamentsLoading, setCloudTournamentsLoading] = useState(false);
   const [cloudTournamentsNotice, setCloudTournamentsNotice] = useState("");
+  const [cloudRankings, setCloudRankings] = useState({ userRanking: [], teamRanking: [], userTeamRanking: [], goalRanking: [], assistRanking: [], playerRanking: [], loaded: false });
+  const [cloudRankingsLoading, setCloudRankingsLoading] = useState(false);
+  const [cloudRankingsNotice, setCloudRankingsNotice] = useState("");
 
   useEffect(() => {
     try { localStorage.setItem(THEME_KEY, theme); } catch {}
@@ -1605,6 +1698,12 @@ function App(){
     refreshCloudTournaments({ silent: true });
   }, [cloudSession?.user?.id]);
 
+
+  useEffect(() => {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    refreshCloudRankings({ silent: true });
+  }, [cloudSession?.user?.id, seasonFilter]);
+
   const currentUser = getEffectiveUser(state, cloudSession, cloudProfile);
   const effectiveUserId = currentUser?.id || state.currentUserId;
   const visibleTournaments = useMemo(() => getVisibleTournamentsForUser(state, effectiveUserId), [state, effectiveUserId]);
@@ -1612,10 +1711,16 @@ function App(){
   const cloudModeActive = Boolean(supabaseClient && cloudSession?.user?.id);
   const friendIds = useMemo(() => getFriendIds(state, effectiveUserId, { cloudOnly: cloudModeActive }), [state, effectiveUserId, cloudModeActive]);
   const myRankingIds = useMemo(() => [effectiveUserId, ...friendIds], [effectiveUserId, friendIds]);
-  const rankingUsers = useMemo(() => buildUserRanking(state, rankingScope === "friends" ? myRankingIds : null, seasonFilter), [state, rankingScope, myRankingIds, seasonFilter]);
-  const globalRankingUsers = useMemo(() => buildUserRanking(state, null, "all"), [state]);
-  const teamRanking = useMemo(() => buildTeamRanking(state, seasonFilter), [state, seasonFilter]);
-  const userTeamRanking = useMemo(() => buildUserTeamRanking(state, seasonFilter), [state, seasonFilter]);
+  const rankingUsers = useMemo(() => {
+    if (cloudModeActive && cloudRankings.loaded) {
+      const base = rankingScope === "friends" ? cloudRankings.userRanking.filter((row) => myRankingIds.includes(row.userId)) : cloudRankings.userRanking;
+      return base.map((row, index) => ({ ...row, pos: index + 1 }));
+    }
+    return buildUserRanking(state, rankingScope === "friends" ? myRankingIds : null, seasonFilter);
+  }, [state, rankingScope, myRankingIds, seasonFilter, cloudModeActive, cloudRankings]);
+  const globalRankingUsers = useMemo(() => cloudModeActive && cloudRankings.loaded ? cloudRankings.userRanking : buildUserRanking(state, null, "all"), [state, cloudModeActive, cloudRankings]);
+  const teamRanking = useMemo(() => cloudModeActive && cloudRankings.loaded ? cloudRankings.teamRanking : buildTeamRanking(state, seasonFilter), [state, seasonFilter, cloudModeActive, cloudRankings]);
+  const userTeamRanking = useMemo(() => cloudModeActive && cloudRankings.loaded ? cloudRankings.userTeamRanking : buildUserTeamRanking(state, seasonFilter), [state, seasonFilter, cloudModeActive, cloudRankings]);
 
   async function ensureCloudProfile(authUser, fallback = {}) {
     if (!supabaseClient || !authUser?.id) return null;
@@ -2032,11 +2137,48 @@ function App(){
       }
 
       syncCloudTournamentsToState(tournaments || [], participants, invitations, joinRows, matches, goalRows, activityRows, profiles, cloudSession.user.id);
+      refreshCloudRankings({ silent: true });
       if (!options.silent) setCloudTournamentsNotice("Salas actualizadas.");
     } catch (error) {
       setCloudTournamentsNotice(error?.message || "No se pudieron actualizar las salas.");
     } finally {
       setCloudTournamentsLoading(false);
+    }
+  }
+
+  async function refreshCloudRankings(options = {}) {
+    if (!supabaseClient || !cloudSession?.user?.id) return;
+    if (!options.silent) setCloudRankingsNotice("");
+    setCloudRankingsLoading(true);
+    try {
+      const seasonArg = seasonFilter || "all";
+      const [usersRes, teamsRes, combosRes, playersRes] = await Promise.all([
+        supabaseClient.rpc("get_chute_user_ranking", { p_season: seasonArg }),
+        supabaseClient.rpc("get_chute_team_ranking", { p_season: seasonArg }),
+        supabaseClient.rpc("get_chute_user_team_ranking", { p_season: seasonArg }),
+        supabaseClient.rpc("get_chute_player_ranking", { p_season: seasonArg })
+      ]);
+      if (usersRes.error) throw usersRes.error;
+      if (teamsRes.error) throw teamsRes.error;
+      if (combosRes.error) throw combosRes.error;
+      if (playersRes.error) throw playersRes.error;
+
+      const playerRanking = normalizeCloudPlayerRanking(playersRes.data || []);
+      setCloudRankings({
+        userRanking: normalizeCloudUserRanking(usersRes.data || []),
+        teamRanking: normalizeCloudTeamRanking(teamsRes.data || []),
+        userTeamRanking: normalizeCloudUserTeamRanking(combosRes.data || []),
+        playerRanking,
+        goalRanking: playerRanking.filter((row) => row.goals > 0).sort((a, b) => b.goals - a.goals || b.assists - a.assists || a.playerName.localeCompare(b.playerName)).map((row, index) => ({ ...row, pos: index + 1 })),
+        assistRanking: playerRanking.filter((row) => row.assists > 0).sort((a, b) => b.assists - a.assists || b.goals - a.goals || a.playerName.localeCompare(b.playerName)).map((row, index) => ({ ...row, pos: index + 1 })),
+        loaded: true
+      });
+      if (!options.silent) setCloudRankingsNotice("Rankings actualizados.");
+    } catch (error) {
+      setCloudRankingsNotice(error?.message || "No se pudieron actualizar los rankings.");
+      setCloudRankings((current) => ({ ...current, loaded: false }));
+    } finally {
+      setCloudRankingsLoading(false);
     }
   }
 
@@ -2496,7 +2638,7 @@ function App(){
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
-        {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} />}
+        {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} cloudRankings={cloudRankings} cloudModeActive={cloudModeActive} cloudRankingsLoading={cloudRankingsLoading} cloudRankingsNotice={cloudRankingsNotice} onRefreshRankings={() => refreshCloudRankings({ silent: false })} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
         {view === "perfil" && <Profile state={state} currentUser={currentUser} friendIds={friendIds} rankingUsers={globalRankingUsers} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "admin" && <Admin state={state} commit={commit} />}
@@ -4414,7 +4556,7 @@ function RecordsPanel({ state }){
   );
 }
 
-function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeasonFilter, rankingUsers, teamRanking, userTeamRanking, currentUser }){
+function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeasonFilter, rankingUsers, teamRanking, userTeamRanking, currentUser, cloudRankings, cloudModeActive, cloudRankingsLoading, cloudRankingsNotice, onRefreshRankings }){
   const [tab, setTab] = useState("users");
   const classifiedUsers = rankingUsers.filter((r) => r.status === "Clasificado");
   const classifyingUsers = rankingUsers.filter((r) => r.status !== "Clasificado");
@@ -4445,19 +4587,21 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
                 <button className={rankingScope === "friends" ? "active" : ""} onClick={() => setRankingScope("friends")}>Mis amigos</button>
               </div>
               <label className="compact-select">Temporada<select value={seasonFilter} onChange={(e) => setSeasonFilter(e.target.value)}><option value="all">Histórico</option>{state.seasons.filter((s) => s !== "Histórico").map((season) => <option key={season} value={season}>{season}</option>)}</select></label>
+              {cloudModeActive ? <button className="ghost mini" type="button" onClick={onRefreshRankings} disabled={cloudRankingsLoading}>{cloudRankingsLoading ? "Actualizando…" : "Actualizar ranking"}</button> : null}
             </div>
             <h4>Ranking principal</h4>
             <SimpleTable rows={classifiedUsers} columns={["pos", "name", "tournaments", "pj", "pg", "pe", "pp", "dg", "titles", "performance", "score"]} labels={{ pos: "#", name: "Usuario", tournaments: "T", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", dg: "DG", titles: "Copas", performance: "%", score: "Score" }} />
             <h4>En clasificación</h4>
             <SimpleTable rows={classifyingUsers} columns={["pos", "name", "pj", "pg", "performance", "score", "status"]} labels={{ pos: "#", name: "Usuario", pj: "PJ", pg: "PG", performance: "%", score: "Score", status: "Estado" }} compact />
-            <p className="hint">Regla v4: el ranking principal exige mínimo 5 partidos jugados. Quienes no cumplen quedan visibles en “En clasificación”.</p>
+            <p className="hint">El ranking principal exige mínimo 5 partidos jugados. Quienes no cumplen quedan visibles en “En clasificación”.</p>
+            {cloudRankingsNotice ? <p className="hint">{cloudRankingsNotice}</p> : null}
           </>
         )}
         {tab === "teams" && <SimpleTable rows={teamRanking} columns={["pos", "name", "tournaments", "pj", "pg", "pe", "pp", "dg", "titles", "performance", "score"]} labels={{ pos: "#", name: "Equipo", tournaments: "T", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", dg: "DG", titles: "Copas", performance: "%", score: "Score" }} />}
         {tab === "combos" && <SimpleTable rows={userTeamRanking} columns={["pos", "userName", "teamName", "tournaments", "pj", "pg", "performance", "titles", "score"]} labels={{ pos: "#", userName: "Usuario", teamName: "Equipo", tournaments: "T", pj: "PJ", pg: "PG", performance: "%", titles: "Copas", score: "Score" }} />}
         {tab === "public" && <PublicProfiles state={state} currentUser={currentUser} />}
         {tab === "rivalries" && <RivalriesPanel state={state} />}
-        {tab === "scorers" && <ScorersPanel state={state} />}
+        {tab === "scorers" && <ScorersPanel state={state} cloudRankings={cloudRankings} />}
         {tab === "records" && <RecordsPanel state={state} />}
       </article>
       <UserComparator state={state} currentUser={currentUser} />
@@ -4465,10 +4609,11 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
   );
 }
 
-function ScorersPanel({ state }){
-  const goalRows = buildGoalRanking(state);
-  const assistRows = buildAssistRanking(state);
-  const playerRows = buildPlayerContributionRanking(state);
+function ScorersPanel({ state, cloudRankings }){
+  const usingCloud = Boolean(cloudRankings?.loaded);
+  const goalRows = usingCloud ? cloudRankings.goalRanking : buildGoalRanking(state);
+  const assistRows = usingCloud ? cloudRankings.assistRanking : buildAssistRanking(state);
+  const playerRows = usingCloud ? cloudRankings.playerRanking : buildPlayerContributionRanking(state);
   return (
     <div className="space-top stats-split">
       <section>

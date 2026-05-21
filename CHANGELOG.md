@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0
+- Agrega rankings reales calculados desde Supabase.
+- Ranking global de usuarios desde partidos confirmados.
+- Ranking de equipos considerando equipo fijo y equipo libre por partido.
+- Ranking usuario + equipo desde el equipo usado en cada partido.
+- Goleadores, asistidores y futbolistas históricos desde eventos guardados en Supabase.
+- Botón para actualizar ranking desde la vista Ranking.
+- Nuevo SQL: `supabase/14_rankings_1_5.sql`.
+
+
 ## 1.4.3
 
 - Agrega modo de fixture: solo ida o ida y vuelta.
