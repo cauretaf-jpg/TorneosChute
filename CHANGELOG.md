@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.0 - Temporadas semestrales automáticas
+- Nueva sección Temporadas.
+- Temporadas Apertura/Clausura calculadas automáticamente por semestre.
+- Selector de temporada al crear torneos.
+- Resumen de temporada con progreso, campeones, líderes y resultados recientes.
+- Amistosos se mantiene como sección paralela sin afectar ranking oficial.
+
 ## 1.9.0 - Central del Torneo
 - Agrega una Central del Campeonato dentro del resumen de cada torneo.
 - Muestra líder actual, fecha actual, progreso de partidos, goleador y mejor defensa.

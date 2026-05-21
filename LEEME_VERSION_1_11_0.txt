@@ -1,0 +1,27 @@
+Chute Plataforma 1.11.0 - Temporadas semestrales automáticas
+
+Base usada: PaginaChute.zip enviado como última versión de trabajo.
+
+Cambios principales:
+- La sección Amistosos ya estaba incorporada y se mantiene sin cambios críticos.
+- Nueva sección Temporadas en el menú principal y menú inferior.
+- Temporadas semestrales automáticas:
+  - Temporada Apertura AAAA: enero a junio.
+  - Temporada Clausura AAAA: julio a diciembre.
+- Al crear un torneo, la temporada se elige desde un selector y la opción por defecto usa la temporada vigente automática.
+- El catálogo de temporadas se regenera automáticamente con el ciclo actual, anterior y siguiente.
+- Ranking por temporada actualizado para usar el catálogo automático.
+- Panel de resumen de temporada con torneos, campeones, progreso, líder, equipo destacado, jugador destacado y resultados recientes.
+
+No se modificó:
+- Supabase.
+- Finalización de torneos.
+- Generación del fixture.
+- Registro de resultados o goles.
+- Ranking oficial de fondo.
+
+Prueba recomendada:
+1. Ejecutar iniciar-chute-plataforma.bat.
+2. Abrir Temporadas.
+3. Crear un torneo nuevo y revisar que la temporada por defecto sea la vigente.
+4. Revisar Ranking y filtrar por Temporada Apertura/Clausura.

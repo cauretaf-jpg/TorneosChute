@@ -5,8 +5,8 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.10.0";
-const DATA_VERSION = 7;
+const APP_VERSION = "1.11.0";
+const DATA_VERSION = 8;
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
@@ -482,7 +482,59 @@ const PLAYER_PHOTOS = {
   }
 };
 
-const CURRENT_SEASON = "Temporada 2026";
+function getAutomaticSeason(date = new Date()){
+  const value = date instanceof Date ? date : new Date(date);
+  const year = Number.isFinite(value.getFullYear()) ? value.getFullYear() : new Date().getFullYear();
+  const month = Number.isFinite(value.getMonth()) ? value.getMonth() + 1 : new Date().getMonth() + 1;
+  return `Temporada ${month <= 6 ? "Apertura" : "Clausura"} ${year}`;
+}
+
+function parseChuteSeason(season = ""){
+  const match = String(season || "").match(/Temporada\s+(Apertura|Clausura)\s+(\d{4})/i);
+  if (!match) return null;
+  return { stage: match[1][0].toUpperCase() + match[1].slice(1).toLowerCase(), year: Number(match[2]) };
+}
+
+function seasonSortValue(season = ""){
+  const parsed = parseChuteSeason(season);
+  if (!parsed) return 0;
+  return parsed.year * 2 + (parsed.stage === "Clausura" ? 1 : 0);
+}
+
+function getSeasonPeriodText(season = ""){
+  const parsed = parseChuteSeason(season);
+  if (!parsed) return "Temporada personalizada";
+  return parsed.stage === "Apertura"
+    ? `Enero a junio de ${parsed.year}`
+    : `Julio a diciembre de ${parsed.year}`;
+}
+
+function getNextSeasonName(season = CURRENT_SEASON){
+  const parsed = parseChuteSeason(season);
+  if (!parsed) return getAutomaticSeason();
+  return parsed.stage === "Apertura"
+    ? `Temporada Clausura ${parsed.year}`
+    : `Temporada Apertura ${parsed.year + 1}`;
+}
+
+function buildSeasonCatalog(extra = [], referenceDate = new Date()){
+  const ref = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  const baseYear = Number.isFinite(ref.getFullYear()) ? ref.getFullYear() : new Date().getFullYear();
+  const generated = [];
+  for (let year = baseYear - 1; year <= baseYear + 1; year += 1) {
+    generated.push(`Temporada Apertura ${year}`);
+    generated.push(`Temporada Clausura ${year}`);
+  }
+  const merged = [...generated, ...(extra || [])]
+    .map((item) => String(item || "").trim())
+    .filter((item) => item && item !== "Histórico");
+  return [...new Set(merged)]
+    .sort((a, b) => seasonSortValue(b) - seasonSortValue(a) || b.localeCompare(a))
+    .concat("Histórico");
+}
+
+const CURRENT_SEASON = getAutomaticSeason();
+const DEFAULT_SEASONS = buildSeasonCatalog([CURRENT_SEASON]);
 
 const ACHIEVEMENTS = [
   { id: "first_win", title: "Primer triunfo", description: "Gana tu primer partido oficial." },
@@ -541,7 +593,7 @@ function makeInviteCode(name = "CHUTE"){
 const seedState = () => ({
   currentUserId: "guest_user",
   currentSeason: CURRENT_SEASON,
-  seasons: [CURRENT_SEASON, "Histórico"],
+  seasons: DEFAULT_SEASONS,
   users: [
     { id: "guest_user", name: "Jugador invitado", alias: "Jugador", createdAt: today() }
   ],
@@ -582,8 +634,11 @@ function normalizeState(parsed){
     ...parsed,
     meta: { ...(parsed?.meta || {}), dataVersion: DATA_VERSION, release: APP_VERSION, migratedAt: parsed?.meta?.migratedAt || today() },
     teams: hydrateTeams(parsed?.teams),
-    currentSeason: parsed?.currentSeason || CURRENT_SEASON,
-    seasons: parsed?.seasons?.length ? parsed.seasons : [CURRENT_SEASON, "Histórico"],
+    currentSeason: CURRENT_SEASON,
+    seasons: buildSeasonCatalog([
+      ...(Array.isArray(parsed?.seasons) ? parsed.seasons : []),
+      ...((parsed?.tournaments || []).map((t) => t?.season).filter(Boolean))
+    ]),
     friends: parsed?.friends || [],
     invitations: parsed?.invitations || [],
     friendlyMatches: (parsed?.friendlyMatches || []).map((m) => ({
@@ -615,6 +670,65 @@ function normalizeState(parsed){
       joinRequests: t.joinRequests || [],
       activity: t.activity || []
     }))
+  };
+}
+
+
+function ensureSeasonCatalog(draft){
+  const tournamentSeasons = (draft.tournaments || []).map((t) => t?.season).filter(Boolean);
+  draft.currentSeason = CURRENT_SEASON;
+  draft.seasons = buildSeasonCatalog([...(draft.seasons || []), ...tournamentSeasons]);
+  draft.tournaments = (draft.tournaments || []).map((t) => ({ ...t, season: t.season || CURRENT_SEASON }));
+  return draft;
+}
+
+function getSeasonOptions(state){
+  return buildSeasonCatalog([
+    ...((state?.seasons || []).filter(Boolean)),
+    ...((state?.tournaments || []).map((t) => t?.season).filter(Boolean))
+  ]).filter((season) => season !== "Histórico");
+}
+
+function buildSeasonDashboard(state, seasonName){
+  const tournaments = (state.tournaments || []).filter((t) => (t.season || CURRENT_SEASON) === seasonName);
+  const seasonState = { ...state, tournaments };
+  const officialMatches = tournaments.flatMap((tournament) => (tournament.matches || []).map((match) => ({ tournament, match })));
+  const playedMatches = officialMatches.filter(({ match }) => matchPlayed(match));
+  const totalGoals = playedMatches.reduce((sum, { match }) => sum + Number(match.homeGoals || 0) + Number(match.awayGoals || 0), 0);
+  const active = tournaments.filter((tournament) => tournament.status !== "closed");
+  const closed = tournaments.filter((tournament) => tournament.status === "closed");
+  const userRanking = buildUserRanking(state, null, seasonName);
+  const teamRanking = buildTeamRanking(state, seasonName);
+  const playerRanking = buildPlayerContributionRanking(seasonState);
+  const recentResults = getRecentResultRows(state, tournaments, 5);
+  const champions = closed
+    .filter((tournament) => tournament.championUserId || tournament.historySummary?.championUserId)
+    .map((tournament) => {
+      const championUserId = tournament.championUserId || tournament.historySummary?.championUserId;
+      const championTeamId = tournament.championTeamId || tournament.historySummary?.championTeamId;
+      return {
+        id: tournament.id,
+        name: tournament.name,
+        user: getUser(state, championUserId).alias,
+        team: getTeam(state, championTeamId).short || getTeam(state, championTeamId).name,
+        createdAt: tournament.createdAt || ""
+      };
+    });
+  return {
+    seasonName,
+    period: getSeasonPeriodText(seasonName),
+    tournaments,
+    active,
+    closed,
+    officialMatches,
+    playedMatches,
+    pendingMatches: officialMatches.filter(({ match }) => !matchPlayed(match)),
+    totalGoals,
+    leader: userRanking[0] || null,
+    topTeam: teamRanking[0] || null,
+    topPlayer: playerRanking[0] || null,
+    recentResults,
+    champions
   };
 }
 
@@ -2380,6 +2494,11 @@ function App(){
   }, [theme]);
 
   useEffect(() => {
+    if (state.currentSeason === CURRENT_SEASON && (state.seasons || []).includes(CURRENT_SEASON)) return;
+    commit((draft) => ensureSeasonCatalog(draft));
+  }, []);
+
+  useEffect(() => {
     if (!supabaseClient) {
       setCloudLoading(false);
       return undefined;
@@ -3492,6 +3611,7 @@ function App(){
           <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
           <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
           <NavButton id="mundo" label="Mundo Chute" view={view} setView={setView} />
+          <NavButton id="temporadas" label="Temporadas" view={view} setView={setView} />
           <NavButton id="amistosos" label="Amistosos" view={view} setView={setView} />
           <NavButton id="amigos" label="Amigos" view={view} setView={setView} />
           <NavButton id="ranking" label="Ranking" view={view} setView={setView} />
@@ -3528,6 +3648,7 @@ function App(){
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
+        {view === "temporadas" && <Seasons state={state} setView={setView} openTournament={openTournament} setSeasonFilter={setSeasonFilter} />}
         {view === "amistosos" && <FriendlyMatches state={state} commit={commit} currentUser={currentUser} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} cloudRankings={cloudRankings} cloudModeActive={cloudModeActive} cloudRankingsLoading={cloudRankingsLoading} cloudRankingsNotice={cloudRankingsNotice} onRefreshRankings={() => refreshCloudRankings({ silent: false })} openTournament={openTournament} />}
@@ -3540,6 +3661,7 @@ function App(){
         <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
         <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
         <NavButton id="mundo" label="Mundo" view={view} setView={setView} />
+        <NavButton id="temporadas" label="Temp." view={view} setView={setView} />
         <NavButton id="amistosos" label="Amist." view={view} setView={setView} />
         <NavButton id="ranking" label="Ranking" view={view} setView={setView} />
         <NavButton id="perfil" label="Perfil" view={view} setView={setView} />
@@ -3553,6 +3675,7 @@ function pageTitle(view){
     inicio: "Panel principal",
     torneos: "Sala de torneos",
     mundo: "Mundo Chute",
+    temporadas: "Temporadas",
     amistosos: "Partidos amistosos",
     amigos: "Amigos e invitaciones",
     ranking: "Ranking Chute",
@@ -4147,6 +4270,7 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
 
   const friendIds = getFriendIds(state, currentUser.id);
   const friends = state.users.filter((u) => friendIds.includes(u.id));
+  const seasonOptions = useMemo(() => getSeasonOptions(state), [state]);
 
   function toggleInvite(userId){
     setInviteIds((prev) => prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]);
@@ -4254,7 +4378,11 @@ function CreateTournamentWizard({ state, commit, currentUser, setSelectedTournam
             <label>Nombre<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Copa Gato Dulce 2026" /></label>
             <label>Formato<select value={format} onChange={(e) => setFormat(e.target.value)}><option value="league">Liga</option><option value="league_playoff">Liga + Playoff</option><option value="groups">Copa con grupos</option><option value="knockout">Eliminación directa</option></select></label>
             <label>Visibilidad<select value={visibility} onChange={(e) => setVisibility(e.target.value)}><option value="private">Privado</option><option value="public">Público</option></select></label>
-            <label>Temporada<input value={season} onChange={(e) => setSeason(e.target.value)} placeholder="Ej: Temporada 2026" /></label>
+            <label>Temporada<select value={season} onChange={(e) => setSeason(e.target.value)}>{seasonOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          </div>
+          <div className="season-auto-note">
+            <strong>Temporada automática</strong>
+            <span>La app usa {state.currentSeason} por defecto. Apertura cubre enero-junio y Clausura julio-diciembre.</span>
           </div>
           <div className="mode-choice-grid">
             <button type="button" className={`mode-choice ${teamSelectionMode === "fixed" ? "active" : ""}`} onClick={() => setTeamSelectionMode("fixed")}>
@@ -5960,6 +6088,138 @@ function TournamentInvitationCenter({ state, commit, currentUser, cloudMode = fa
 
 
 
+
+function Seasons({ state, setView, openTournament, setSeasonFilter }){
+  const seasonOptions = getSeasonOptions(state);
+  const [selectedSeason, setSelectedSeason] = useState(state.currentSeason || CURRENT_SEASON);
+  const safeSeason = seasonOptions.includes(selectedSeason) ? selectedSeason : (state.currentSeason || seasonOptions[0] || CURRENT_SEASON);
+  const summary = buildSeasonDashboard(state, safeSeason);
+  const nextSeason = getNextSeasonName(safeSeason);
+  const upcomingTournaments = summary.active.slice(0, 6);
+  const closedTournaments = summary.closed.slice(0, 6);
+  const progress = summary.officialMatches.length ? Math.round((summary.playedMatches.length / summary.officialMatches.length) * 100) : 0;
+
+  function goToRanking(){
+    setSeasonFilter?.(safeSeason);
+    setView("ranking");
+  }
+
+  function copySummary(){
+    const lines = [
+      `Resumen ${summary.seasonName}`,
+      `Periodo: ${summary.period}`,
+      `Torneos: ${summary.tournaments.length} · Activos: ${summary.active.length} · Finalizados: ${summary.closed.length}`,
+      `Partidos jugados: ${summary.playedMatches.length}/${summary.officialMatches.length}`,
+      `Goles oficiales: ${summary.totalGoals}`,
+      `Líder: ${summary.leader?.name || "Sin datos"}`,
+      `Equipo destacado: ${summary.topTeam?.name || "Sin datos"}`,
+      `Jugador destacado: ${summary.topPlayer ? `${summary.topPlayer.playerName} (${summary.topPlayer.contributions})` : "Sin datos"}`
+    ];
+    if (summary.champions.length) {
+      lines.push("", "Campeones:");
+      summary.champions.slice(0, 5).forEach((row) => lines.push(`- ${row.name}: ${row.user} · ${row.team}`));
+    }
+    const text = lines.join("\n");
+    navigator.clipboard?.writeText(text);
+    alert("Resumen de temporada copiado.");
+  }
+
+  return (
+    <section className="stack seasons-page">
+      <article className="hero-panel seasons-hero product-hero">
+        <div>
+          <p className="eyebrow">Calendario semestral automático</p>
+          <h2>{safeSeason}</h2>
+          <p>{summary.period}. La temporada vigente se actualiza sola: Apertura de enero a junio y Clausura de julio a diciembre.</p>
+          <div className="actions-row">
+            <button className="primary" onClick={() => setView("torneos")}>Crear torneo de temporada</button>
+            <button className="secondary" onClick={goToRanking}>Ver ranking de temporada</button>
+            <button className="ghost" onClick={copySummary}>Copiar resumen</button>
+          </div>
+        </div>
+        <div className="season-scoreboard">
+          <span>Temporada vigente</span>
+          <strong>{state.currentSeason || CURRENT_SEASON}</strong>
+          <small>Próximo ciclo sugerido: {nextSeason}</small>
+        </div>
+      </article>
+
+      <article className="card seasons-filter-card">
+        <div className="section-head compact">
+          <div>
+            <p className="eyebrow">Seleccionar ciclo</p>
+            <h3>Temporadas disponibles</h3>
+          </div>
+          <label className="compact-select">Temporada<select value={safeSeason} onChange={(e) => setSelectedSeason(e.target.value)}>{seasonOptions.map((season) => <option key={season} value={season}>{season}</option>)}</select></label>
+        </div>
+        <div className="season-chip-row">
+          {seasonOptions.slice(0, 8).map((season) => <button key={season} type="button" className={season === safeSeason ? "active" : ""} onClick={() => setSelectedSeason(season)}>{season}</button>)}
+        </div>
+      </article>
+
+      <div className="metric-grid product-metrics season-metrics">
+        <Metric title="Torneos" value={summary.tournaments.length} />
+        <Metric title="Activos" value={summary.active.length} />
+        <Metric title="Finalizados" value={summary.closed.length} />
+        <Metric title="Progreso" value={`${progress}%`} />
+      </div>
+
+      <div className="grid-2 season-grid">
+        <article className="card season-main-card">
+          <div className="section-head compact"><div><p className="eyebrow">Estado competitivo</p><h3>Resumen de temporada</h3></div></div>
+          <div className="season-summary-grid">
+            <span><small>Líder</small><strong>{summary.leader?.name || "Sin datos"}</strong><em>{summary.leader ? `${summary.leader.score} pts · ${summary.leader.performance}%` : "Registra partidos oficiales"}</em></span>
+            <span><small>Equipo destacado</small><strong>{summary.topTeam?.name || "Sin datos"}</strong><em>{summary.topTeam ? `${summary.topTeam.score} pts · ${summary.topTeam.dg} DG` : "Sin datos"}</em></span>
+            <span><small>Jugador destacado</small><strong>{summary.topPlayer?.playerName || "Sin datos"}</strong><em>{summary.topPlayer ? `${summary.topPlayer.goals} G · ${summary.topPlayer.assists} A` : "Sin goles registrados"}</em></span>
+            <span><small>Goles</small><strong>{summary.totalGoals}</strong><em>{summary.playedMatches.length} partidos jugados</em></span>
+          </div>
+        </article>
+
+        <article className="card season-main-card">
+          <div className="section-head compact"><div><p className="eyebrow">Palmarés</p><h3>Campeones del ciclo</h3></div></div>
+          <div className="list spaced">
+            {summary.champions.map((row) => (
+              <button className="list-row clickable" key={row.id} type="button" onClick={() => openTournament(row.id)}>
+                <span><strong>{row.name}</strong><small>{row.user} · {row.team}</small></span>
+                <b>🏆</b>
+              </button>
+            ))}
+            {!summary.champions.length && <p className="empty">Aún no hay torneos finalizados en esta temporada.</p>}
+          </div>
+        </article>
+      </div>
+
+      <div className="grid-2 season-grid">
+        <article className="card">
+          <div className="section-head compact"><div><p className="eyebrow">En juego</p><h3>Torneos activos</h3></div></div>
+          <div className="list spaced">
+            {upcomingTournaments.map((tournament) => {
+              const played = (tournament.matches || []).filter(matchPlayed).length;
+              const total = (tournament.matches || []).length;
+              return <button className="list-row clickable" key={tournament.id} type="button" onClick={() => openTournament(tournament.id)}><span><strong>{tournament.name}</strong><small>{formatLabel(tournament.format)} · {played}/{total} partidos</small></span><b>{STATUS_LABELS[tournament.status] || tournament.status}</b></button>;
+            })}
+            {!upcomingTournaments.length && <p className="empty">No hay torneos activos para esta temporada.</p>}
+          </div>
+        </article>
+
+        <article className="card">
+          <div className="section-head compact"><div><p className="eyebrow">Finalizados</p><h3>Historial de la temporada</h3></div></div>
+          <div className="list spaced">
+            {closedTournaments.map((tournament) => <button className="list-row clickable" key={tournament.id} type="button" onClick={() => openTournament(tournament.id)}><span><strong>{tournament.name}</strong><small>{formatLabel(tournament.format)} · {tournament.createdAt || "Sin fecha"}</small></span><b>{getUser(state, tournament.championUserId).alias || "Ver"}</b></button>)}
+            {!closedTournaments.length && <p className="empty">Todavía no hay torneos cerrados en esta temporada.</p>}
+          </div>
+        </article>
+      </div>
+
+      <article className="card">
+        <div className="section-head compact"><div><p className="eyebrow">Última actividad</p><h3>Resultados recientes de {safeSeason}</h3></div></div>
+        <SimpleTable rows={summary.recentResults} columns={["tournament", "round", "home", "score", "away", "homeTeam", "awayTeam"]} labels={{ tournament: "Torneo", round: "Fecha", home: "Local", score: "Marcador", away: "Visita", homeTeam: "Equipo L", awayTeam: "Equipo V" }} compact />
+        {!summary.recentResults.length && <p className="empty">No hay resultados recientes en esta temporada.</p>}
+      </article>
+    </section>
+  );
+}
+
 function FriendlyMatches({ state, commit, currentUser }){
   const users = state.users || [];
   const teams = state.teams || [];
@@ -6094,7 +6354,7 @@ function MundoChute({ state, openTournament, setView }){
           <p className="eyebrow">Portada competitiva</p>
           <h2>Mundo Chute</h2>
           <p>Una vista general de la actividad competitiva: campeones, rankings, clubes, futbolistas y torneos activos.</p>
-          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="secondary" onClick={() => setView("amistosos")}>Registrar amistoso</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
+          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="secondary" onClick={() => setView("temporadas")}>Ver temporadas</button><button className="secondary" onClick={() => setView("amistosos")}>Registrar amistoso</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
         </div>
         <div className="product-hero-board">
           <div className="scoreboard-main">
@@ -6321,7 +6581,7 @@ function Ranking({ state, rankingScope, setRankingScope, seasonFilter, setSeason
                 <button className={rankingScope === "global" ? "active" : ""} onClick={() => setRankingScope("global")}>Global</button>
                 <button className={rankingScope === "friends" ? "active" : ""} onClick={() => setRankingScope("friends")}>Mis amigos</button>
               </div>
-              <label className="compact-select">Temporada<select value={seasonFilter} onChange={(e) => setSeasonFilter(e.target.value)}><option value="all">Histórico</option>{state.seasons.filter((s) => s !== "Histórico").map((season) => <option key={season} value={season}>{season}</option>)}</select></label>
+              <label className="compact-select">Temporada<select value={seasonFilter} onChange={(e) => setSeasonFilter(e.target.value)}><option value="all">Histórico</option>{getSeasonOptions(state).map((season) => <option key={season} value={season}>{season}</option>)}</select></label>
               {cloudModeActive ? <button className="ghost mini" type="button" onClick={onRefreshRankings} disabled={cloudRankingsLoading}>{cloudRankingsLoading ? "Actualizando…" : "Actualizar ranking"}</button> : null}
             </div>
             <div className="section-head compact-head">
