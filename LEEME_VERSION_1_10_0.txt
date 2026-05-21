@@ -1,0 +1,15 @@
+Chute Plataforma 1.10.0 - Historial, rivalidades y amistosos
+
+Base usada: versión 1.9.0 Central del Torneo.
+
+Cambios principales:
+- Nueva sección Amistosos para registrar partidos fuera de torneo.
+- Ranking informal de amistosos separado del ranking oficial.
+- Historial y rivalidades amistosas.
+- Rivalidades oficiales más visuales, con detalle del cara a cara y resumen copiable.
+- Botón de acceso a Amistosos desde Mundo Chute y navegación principal.
+
+Notas:
+- Los amistosos no afectan torneos oficiales ni ranking oficial.
+- No se modificó Supabase ni las funciones de cierre de torneo.
+- La sincronización de amistosos en la nube queda para una versión posterior.

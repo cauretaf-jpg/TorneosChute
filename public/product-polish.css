@@ -1041,3 +1041,162 @@
     width: 100%;
   }
 }
+
+/* Chute Plataforma 1.10.0 · rivalidades y amistosos */
+.rivalry-dashboard .compact-head p {
+  max-width: 720px;
+}
+
+.rivalry-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.rivalry-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rivalry-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  color: var(--text);
+  background: rgba(255,255,255,.045);
+  text-align: left;
+}
+
+.rivalry-card:hover,
+.rivalry-card.selected {
+  border-color: rgba(94,211,255,.32);
+  background: linear-gradient(135deg, rgba(94,211,255,.12), rgba(255,255,255,.045));
+}
+
+.rivalry-card span,
+.rivalry-card small {
+  display: grid;
+  gap: 3px;
+}
+
+.rivalry-card small {
+  color: var(--muted);
+}
+
+.rivalry-card b {
+  padding: 7px 9px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: rgba(94,211,255,.12);
+  font-size: .82rem;
+}
+
+.rivalry-detail-card {
+  min-height: 100%;
+  padding: 18px;
+  border: 1px solid var(--chute-product-line);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(124,92,255,.14), transparent 42%),
+    rgba(255,255,255,.045);
+}
+
+.rivalry-detail-card h3 {
+  margin: 2px 0 8px;
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  letter-spacing: -.045em;
+}
+
+.rivalry-scoreline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.rivalry-scoreline span {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 18px;
+  background: rgba(255,255,255,.04);
+  text-align: center;
+}
+
+.rivalry-scoreline small,
+.rivalry-scoreline em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.rivalry-scoreline strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.rivalry-mini-stats span strong {
+  word-break: break-word;
+}
+
+.friendlies-page .friendlies-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+  gap: 18px;
+  align-items: center;
+  border: 1px solid rgba(94,211,255,.22);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(94,211,255,.16), transparent 42%),
+    linear-gradient(135deg, rgba(124,92,255,.12), rgba(255,255,255,.035));
+}
+
+.friendlies-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.friendlies-form-card .form-grid {
+  margin-top: 10px;
+}
+
+.friendlies-list .list-row {
+  align-items: center;
+}
+
+.friendlies-grid .table-wrap,
+.rivalry-detail-card .table-wrap {
+  margin-top: 8px;
+}
+
+@media (max-width: 1050px) {
+  .rivalry-layout,
+  .friendlies-page .friendlies-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .friendlies-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .rivalry-scoreline,
+  .friendlies-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .rivalry-card {
+    grid-template-columns: 1fr;
+  }
+
+  .rivalry-detail-card,
+  .friendlies-page .friendlies-hero {
+    border-radius: 22px;
+  }
+}

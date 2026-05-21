@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-echo Iniciando Chute Plataforma 1.9.0...
+echo Iniciando Chute Plataforma 1.10.0...
 where npm >nul 2>nul
 if errorlevel 1 (
   echo.

@@ -5,8 +5,8 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.9.0";
-const DATA_VERSION = 6;
+const APP_VERSION = "1.10.0";
+const DATA_VERSION = 7;
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
@@ -547,6 +547,7 @@ const seedState = () => ({
   ],
   friends: [],
   invitations: [],
+  friendlyMatches: [],
   teams: TEAMS,
   tournaments: [],
   meta: { dataVersion: DATA_VERSION, migratedAt: today(), release: APP_VERSION }
@@ -585,6 +586,18 @@ function normalizeState(parsed){
     seasons: parsed?.seasons?.length ? parsed.seasons : [CURRENT_SEASON, "Histórico"],
     friends: parsed?.friends || [],
     invitations: parsed?.invitations || [],
+    friendlyMatches: (parsed?.friendlyMatches || []).map((m) => ({
+      id: m.id || uid("am"),
+      date: m.date || m.playedAt || today(),
+      userAId: m.userAId || m.homeUserId || "",
+      userBId: m.userBId || m.awayUserId || "",
+      teamAId: m.teamAId || m.homeTeamId || "",
+      teamBId: m.teamBId || m.awayTeamId || "",
+      goalsA: Number(m.goalsA ?? m.homeGoals ?? 0),
+      goalsB: Number(m.goalsB ?? m.awayGoals ?? 0),
+      note: m.note || "",
+      createdAt: m.createdAt || today()
+    })).filter((m) => m.userAId && m.userBId),
     tournaments: (parsed?.tournaments || []).map((t) => ({
       description: "",
       status: t.matches?.length ? "active" : "preparing",
@@ -1626,6 +1639,98 @@ function buildRivalryRows(state){
   });
   return Object.values(map).sort((a, b) => b.pj - a.pj || b.biggestDiff - a.biggestDiff);
 }
+
+function buildRivalryDetailRows(state, userAId, userBId){
+  if (!userAId || !userBId || userAId === userBId) return [];
+  return state.tournaments.flatMap((tournament) => {
+    return (tournament.matches || [])
+      .filter((match) => matchPlayed(match) && [match.homeUserId, match.awayUserId].includes(userAId) && [match.homeUserId, match.awayUserId].includes(userBId))
+      .map((match) => {
+        const aGoals = match.homeUserId === userAId ? Number(match.homeGoals) : Number(match.awayGoals);
+        const bGoals = match.homeUserId === userBId ? Number(match.homeGoals) : Number(match.awayGoals);
+        const aTeam = getTeam(state, match.homeUserId === userAId ? getMatchTeamId(tournament, match, "home") : getMatchTeamId(tournament, match, "away"));
+        const bTeam = getTeam(state, match.homeUserId === userBId ? getMatchTeamId(tournament, match, "home") : getMatchTeamId(tournament, match, "away"));
+        return {
+          key: `${tournament.id}_${match.id}`,
+          tournament: tournament.name,
+          round: match.round || "Partido",
+          score: `${aGoals}-${bGoals}`,
+          teams: `${aTeam.short || aTeam.name} vs ${bTeam.short || bTeam.name}`,
+          winner: aGoals === bGoals ? "Empate" : aGoals > bGoals ? getUser(state, userAId).alias : getUser(state, userBId).alias,
+          date: match.playedAt || tournament.createdAt || ""
+        };
+      });
+  }).slice(-12).reverse();
+}
+
+function rivalryNarrative(row){
+  if (!row) return "Selecciona una rivalidad para ver detalle.";
+  if (row.aWins === row.bWins) return `${row.userA} y ${row.userB} mantienen una rivalidad equilibrada.`;
+  const leader = row.aWins > row.bWins ? row.userA : row.userB;
+  const diff = Math.abs(row.aWins - row.bWins);
+  return `${leader} domina el historial por ${diff} victoria${diff === 1 ? "" : "s"} de diferencia.`;
+}
+
+function buildFriendlyStats(state){
+  const map = {};
+  (state.users || []).forEach((user) => {
+    map[user.id] = { userId: user.id, name: user.alias || user.name, ...emptyStats(), performance: 0 };
+  });
+  (state.friendlyMatches || []).forEach((match) => {
+    if (!map[match.userAId] || !map[match.userBId]) return;
+    applySingleSide(map[match.userAId], Number(match.goalsA), Number(match.goalsB));
+    applySingleSide(map[match.userBId], Number(match.goalsB), Number(match.goalsA));
+  });
+  return sortRows(Object.values(map).map(finalizeStats).filter((row) => row.pj > 0));
+}
+
+function buildFriendlyRivalries(state){
+  const map = {};
+  (state.friendlyMatches || []).forEach((match) => {
+    const ids = [match.userAId, match.userBId].sort();
+    const key = `${ids[0]}_${ids[1]}`;
+    if (!map[key]) {
+      map[key] = {
+        key,
+        userAId: ids[0],
+        userBId: ids[1],
+        userA: getUser(state, ids[0]).alias,
+        userB: getUser(state, ids[1]).alias,
+        pj: 0,
+        aWins: 0,
+        bWins: 0,
+        draws: 0,
+        goalsA: 0,
+        goalsB: 0,
+        last: "Sin datos"
+      };
+    }
+    const row = map[key];
+    const aGoals = match.userAId === row.userAId ? Number(match.goalsA) : Number(match.goalsB);
+    const bGoals = match.userBId === row.userBId ? Number(match.goalsB) : Number(match.goalsA);
+    row.pj += 1;
+    row.goalsA += aGoals;
+    row.goalsB += bGoals;
+    if (aGoals > bGoals) row.aWins += 1;
+    else if (aGoals < bGoals) row.bWins += 1;
+    else row.draws += 1;
+    row.last = `${row.userA} ${aGoals}-${bGoals} ${row.userB}`;
+  });
+  return Object.values(map).sort((a, b) => b.pj - a.pj || (b.goalsA + b.goalsB) - (a.goalsA + a.goalsB));
+}
+
+function buildFriendlyRecentRows(state, limit = 10){
+  return [...(state.friendlyMatches || [])]
+    .slice(0, limit)
+    .map((match) => ({
+      id: match.id,
+      date: match.date || "Sin fecha",
+      result: `${getUser(state, match.userAId).alias} ${match.goalsA}-${match.goalsB} ${getUser(state, match.userBId).alias}`,
+      teams: `${getTeam(state, match.teamAId).short || getTeam(state, match.teamAId).name} vs ${getTeam(state, match.teamBId).short || getTeam(state, match.teamBId).name}`,
+      note: match.note || "Amistoso"
+    }));
+}
+
 
 function buildRecords(state){
   const userRanking = buildUserRanking(state);
@@ -3387,6 +3492,7 @@ function App(){
           <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
           <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
           <NavButton id="mundo" label="Mundo Chute" view={view} setView={setView} />
+          <NavButton id="amistosos" label="Amistosos" view={view} setView={setView} />
           <NavButton id="amigos" label="Amigos" view={view} setView={setView} />
           <NavButton id="ranking" label="Ranking" view={view} setView={setView} />
           <NavButton id="equipos" label="Equipos" view={view} setView={setView} />
@@ -3422,6 +3528,7 @@ function App(){
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
+        {view === "amistosos" && <FriendlyMatches state={state} commit={commit} currentUser={currentUser} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
         {view === "ranking" && <Ranking state={state} rankingScope={rankingScope} setRankingScope={setRankingScope} seasonFilter={seasonFilter} setSeasonFilter={setSeasonFilter} rankingUsers={rankingUsers} teamRanking={teamRanking} userTeamRanking={userTeamRanking} currentUser={currentUser} cloudRankings={cloudRankings} cloudModeActive={cloudModeActive} cloudRankingsLoading={cloudRankingsLoading} cloudRankingsNotice={cloudRankingsNotice} onRefreshRankings={() => refreshCloudRankings({ silent: false })} openTournament={openTournament} />}
         {view === "equipos" && <Teams state={state} teamRanking={teamRanking} userTeamRanking={userTeamRanking} />}
@@ -3433,6 +3540,7 @@ function App(){
         <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
         <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
         <NavButton id="mundo" label="Mundo" view={view} setView={setView} />
+        <NavButton id="amistosos" label="Amist." view={view} setView={setView} />
         <NavButton id="ranking" label="Ranking" view={view} setView={setView} />
         <NavButton id="perfil" label="Perfil" view={view} setView={setView} />
       </nav>
@@ -3445,6 +3553,7 @@ function pageTitle(view){
     inicio: "Panel principal",
     torneos: "Sala de torneos",
     mundo: "Mundo Chute",
+    amistosos: "Partidos amistosos",
     amigos: "Amigos e invitaciones",
     ranking: "Ranking Chute",
     equipos: "Equipos oficiales",
@@ -5850,6 +5959,125 @@ function TournamentInvitationCenter({ state, commit, currentUser, cloudMode = fa
 }
 
 
+
+function FriendlyMatches({ state, commit, currentUser }){
+  const users = state.users || [];
+  const teams = state.teams || [];
+  const firstOther = users.find((user) => user.id !== currentUser.id)?.id || users[0]?.id || "";
+  const [userAId, setUserAId] = useState(currentUser.id || users[0]?.id || "");
+  const [userBId, setUserBId] = useState(firstOther);
+  const [teamAId, setTeamAId] = useState(teams[0]?.id || "");
+  const [teamBId, setTeamBId] = useState(teams[1]?.id || teams[0]?.id || "");
+  const [goalsA, setGoalsA] = useState(0);
+  const [goalsB, setGoalsB] = useState(0);
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  const stats = buildFriendlyStats(state);
+  const rivalries = buildFriendlyRivalries(state);
+  const recent = buildFriendlyRecentRows(state, 12);
+  const totalGoals = (state.friendlyMatches || []).reduce((sum, match) => sum + Number(match.goalsA || 0) + Number(match.goalsB || 0), 0);
+
+  function saveFriendly(){
+    if (!userAId || !userBId) return alert("Selecciona ambos jugadores.");
+    if (userAId === userBId) return alert("Un amistoso necesita dos jugadores distintos.");
+    if (!teamAId || !teamBId) return alert("Selecciona los equipos usados.");
+    if (!scoreIsValid(goalsA, goalsB)) return alert("Ingresa un marcador válido entre 0 y 99.");
+    commit((draft) => {
+      if (!Array.isArray(draft.friendlyMatches)) draft.friendlyMatches = [];
+      draft.friendlyMatches.unshift({
+        id: uid("am"),
+        date: date || today(),
+        userAId,
+        userBId,
+        teamAId,
+        teamBId,
+        goalsA: Number(goalsA),
+        goalsB: Number(goalsB),
+        note: note.trim(),
+        createdAt: today()
+      });
+      return draft;
+    });
+    setGoalsA(0);
+    setGoalsB(0);
+    setNote("");
+  }
+
+  function removeFriendly(id){
+    const confirmed = window.confirm("¿Eliminar este amistoso? No afectará torneos oficiales.");
+    if (!confirmed) return;
+    commit((draft) => {
+      draft.friendlyMatches = (draft.friendlyMatches || []).filter((match) => match.id !== id);
+      return draft;
+    });
+  }
+
+  return (
+    <section className="stack friendlies-page">
+      <article className="hero-panel friendlies-hero">
+        <div>
+          <p className="eyebrow">Partidos libres</p>
+          <h2>Amistosos Chute</h2>
+          <p>Registra partidos fuera de torneo para guardar historial, rendimiento informal y rivalidades paralelas. Por ahora no afectan el ranking oficial ni Supabase.</p>
+        </div>
+        <div className="metric-grid product-metrics friendlies-metrics">
+          <Metric title="Amistosos" value={(state.friendlyMatches || []).length} />
+          <Metric title="Goles" value={totalGoals} />
+          <Metric title="Rivalidades" value={rivalries.length} />
+        </div>
+      </article>
+
+      <div className="grid-2 friendlies-grid">
+        <article className="card friendlies-form-card">
+          <div className="section-head compact">
+            <div>
+              <p className="eyebrow">Registro rápido</p>
+              <h3>Agregar amistoso</h3>
+            </div>
+          </div>
+          <div className="form-grid two">
+            <label>Jugador A<select value={userAId} onChange={(e) => setUserAId(e.target.value)}>{users.map((user) => <option key={user.id} value={user.id}>{user.alias || user.name}</option>)}</select></label>
+            <label>Jugador B<select value={userBId} onChange={(e) => setUserBId(e.target.value)}>{users.map((user) => <option key={user.id} value={user.id}>{user.alias || user.name}</option>)}</select></label>
+            <label>Equipo A<select value={teamAId} onChange={(e) => setTeamAId(e.target.value)}>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+            <label>Equipo B<select value={teamBId} onChange={(e) => setTeamBId(e.target.value)}>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+            <label>Goles A<input type="number" min="0" max="99" value={goalsA} onChange={(e) => setGoalsA(e.target.value)} /></label>
+            <label>Goles B<input type="number" min="0" max="99" value={goalsB} onChange={(e) => setGoalsB(e.target.value)} /></label>
+            <label>Fecha<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+            <label>Nota<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej: previa del torneo, revancha, entrenamiento" /></label>
+          </div>
+          <div className="actions-row"><button className="primary" type="button" onClick={saveFriendly}>Guardar amistoso</button></div>
+          <p className="hint">Esta sección queda preparada como historial informal. Más adelante se puede sincronizar con usuarios registrados y ranking entre amigos.</p>
+        </article>
+
+        <article className="card">
+          <div className="section-head compact"><div><p className="eyebrow">Tabla informal</p><h3>Ranking de amistosos</h3></div></div>
+          <SimpleTable rows={stats.slice(0, 8)} columns={["pos", "name", "pj", "pg", "pe", "pp", "dg", "performance"]} labels={{ pos: "#", name: "Jugador", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", dg: "DG", performance: "%" }} compact />
+        </article>
+      </div>
+
+      <div className="grid-2 friendlies-grid">
+        <article className="card">
+          <div className="section-head compact"><div><p className="eyebrow">Últimos registros</p><h3>Historial de amistosos</h3></div></div>
+          <div className="list spaced friendlies-list">
+            {recent.map((row) => (
+              <div className="list-row" key={row.id}>
+                <span><strong>{row.result}</strong><small>{row.date} · {row.teams} · {row.note}</small></span>
+                <button className="ghost danger small" type="button" onClick={() => removeFriendly(row.id)}>Eliminar</button>
+              </div>
+            ))}
+            {!recent.length && <p className="empty">Aún no hay amistosos registrados.</p>}
+          </div>
+        </article>
+
+        <article className="card">
+          <div className="section-head compact"><div><p className="eyebrow">Rivalidades informales</p><h3>Cara a cara amistoso</h3></div></div>
+          <SimpleTable rows={rivalries.slice(0, 8)} columns={["userA", "userB", "pj", "aWins", "bWins", "draws", "goalsA", "goalsB", "last"]} labels={{ userA: "Jugador A", userB: "Jugador B", pj: "PJ", aWins: "Gana A", bWins: "Gana B", draws: "Emp", goalsA: "GF A", goalsB: "GF B", last: "Último" }} compact />
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function MundoChute({ state, openTournament, setView }){
   const summary = getWorldSummary(state);
   const leader = summary.userRanking.find((r) => r.status === "Clasificado") || summary.userRanking[0];
@@ -5866,7 +6094,7 @@ function MundoChute({ state, openTournament, setView }){
           <p className="eyebrow">Portada competitiva</p>
           <h2>Mundo Chute</h2>
           <p>Una vista general de la actividad competitiva: campeones, rankings, clubes, futbolistas y torneos activos.</p>
-          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
+          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="secondary" onClick={() => setView("amistosos")}>Registrar amistoso</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
         </div>
         <div className="product-hero-board">
           <div className="scoreboard-main">
@@ -5972,11 +6200,72 @@ function HistoryArchivePanel({ state, openTournament }){
 
 function RivalriesPanel({ state }){
   const rows = buildRivalryRows(state);
+  const [selectedKey, setSelectedKey] = useState(rows[0]?.key || "");
+  const selected = rows.find((row) => row.key === selectedKey) || rows[0] || null;
+  const detailRows = selected ? buildRivalryDetailRows(state, selected.userAId, selected.userBId) : [];
+
+  useEffect(() => {
+    if (rows.length && !rows.some((row) => row.key === selectedKey)) {
+      setSelectedKey(rows[0].key);
+    }
+  }, [rows, selectedKey]);
+
+  async function copySummary(){
+    if (!selected) return;
+    const text = `Rivalidad Chute\n${selected.userA} vs ${selected.userB}\nPJ: ${selected.pj}\n${selected.userA}: ${selected.aWins} victorias\n${selected.userB}: ${selected.bWins} victorias\nEmpates: ${selected.draws}\nGoles: ${selected.goalsA}-${selected.goalsB}\nMayor goleada: ${selected.biggest}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Resumen de rivalidad copiado.");
+    } catch {
+      alert(text);
+    }
+  }
+
   return (
-    <div className="space-top">
-      <h4>Rivalidades entre usuarios</h4>
-      <SimpleTable rows={rows} columns={["userA", "userB", "pj", "aWins", "bWins", "draws", "goalsA", "goalsB", "last"]} labels={{ userA: "Usuario A", userB: "Usuario B", pj: "PJ", aWins: "Gana A", bWins: "Gana B", draws: "Emp", goalsA: "Goles A", goalsB: "Goles B", last: "Último" }} />
-      <p className="hint">Se calcula desde partidos confirmados y permite ver quién domina los enfrentamientos directos.</p>
+    <div className="space-top rivalry-dashboard">
+      <div className="section-head compact-head">
+        <div>
+          <p className="eyebrow">Cara a cara</p>
+          <h4>Rivalidades entre usuarios</h4>
+          <p>Historial competitivo calculado desde partidos oficiales confirmados.</p>
+        </div>
+        {selected && <button className="secondary small" type="button" onClick={copySummary}>Copiar resumen</button>}
+      </div>
+
+      <div className="rivalry-layout">
+        <div className="rivalry-list">
+          {rows.slice(0, 12).map((row) => (
+            <button type="button" key={row.key} className={`rivalry-card ${selected?.key === row.key ? "selected" : ""}`} onClick={() => setSelectedKey(row.key)}>
+              <span><strong>{row.userA} vs {row.userB}</strong><small>{row.pj} partidos · {row.goalsA + row.goalsB} goles</small></span>
+              <b>{row.aWins}-{row.draws}-{row.bWins}</b>
+            </button>
+          ))}
+          {!rows.length && <p className="empty">Aún no hay enfrentamientos suficientes para construir rivalidades.</p>}
+        </div>
+
+        <article className="rivalry-detail-card">
+          {selected ? (
+            <>
+              <p className="eyebrow">Rivalidad destacada</p>
+              <h3>{selected.userA} vs {selected.userB}</h3>
+              <p>{rivalryNarrative(selected)}</p>
+              <div className="rivalry-scoreline">
+                <span><small>{selected.userA}</small><strong>{selected.aWins}</strong><em>victorias</em></span>
+                <span><small>Empates</small><strong>{selected.draws}</strong><em>{selected.pj} PJ</em></span>
+                <span><small>{selected.userB}</small><strong>{selected.bWins}</strong><em>victorias</em></span>
+              </div>
+              <div className="info-grid rivalry-mini-stats">
+                <span>Goles {selected.userA}<strong>{selected.goalsA}</strong></span>
+                <span>Goles {selected.userB}<strong>{selected.goalsB}</strong></span>
+                <span>Mayor goleada<strong>{selected.biggest}</strong></span>
+                <span>Último partido<strong>{selected.last}</strong></span>
+              </div>
+              <h4>Últimos cruces</h4>
+              <SimpleTable rows={detailRows} columns={["tournament", "round", "score", "teams", "winner"]} labels={{ tournament: "Torneo", round: "Fecha", score: "Marcador", teams: "Equipos", winner: "Ganador" }} compact />
+            </>
+          ) : <p className="empty">Registra partidos oficiales para activar el historial de rivalidades.</p>}
+        </article>
+      </div>
     </div>
   );
 }
