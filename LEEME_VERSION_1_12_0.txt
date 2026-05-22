@@ -1,0 +1,24 @@
+Chute Plataforma v1.12.0 - Club Chute y palmarés histórico
+
+Qué agrega esta versión:
+
+1. Nueva sección Club Chute.
+2. Vista tipo museo/historia oficial de la comunidad.
+3. Palmarés histórico con últimos campeones.
+4. Resumen de temporadas semestrales.
+5. Hall de la fama de usuarios y equipos con más títulos.
+6. Mejores campañas de campeones.
+7. Futbolistas históricos por goles y asistencias.
+8. Rivalidades destacadas.
+9. Ranking amistoso no oficial dentro del museo.
+10. Botón para copiar resumen de Club Chute y compartirlo por WhatsApp.
+
+Importante:
+- No modifica Supabase.
+- No agrega SQL nuevo.
+- No cambia la lógica de cierre de torneos.
+- No mezcla amistosos con ranking oficial.
+- Mantiene temporadas semestrales automáticas.
+
+Mensaje sugerido de commit:
+Agregar Club Chute y palmarés histórico v1.12.0

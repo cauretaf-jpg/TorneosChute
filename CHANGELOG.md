@@ -238,3 +238,12 @@
 - Mejora el palmarés con tarjetas visuales de torneos cerrados.
 - Muestra campeón/líder, podio, tabla, figuras y partidos destacados.
 - No requiere SQL nuevo.
+
+## 1.12.0 - Club Chute y palmarés histórico
+
+- Agrega nueva sección `Club Chute` como museo competitivo de la plataforma.
+- Consolida temporadas semestrales, palmarés, últimos campeones, mejores campañas y récords históricos.
+- Muestra hall de la fama de usuarios y equipos con más títulos.
+- Integra futbolistas destacados, rivalidades principales y ranking amistoso no oficial.
+- Agrega resumen copiable para WhatsApp.
+- No requiere SQL nuevo; funciona con los torneos, temporadas y amistosos ya registrados.

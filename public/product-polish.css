@@ -1329,3 +1329,111 @@
     min-width: 0;
   }
 }
+
+/* Chute Plataforma 1.12.0 · Club Chute y palmarés histórico */
+.club-page .club-hero {
+  overflow: hidden;
+}
+
+.club-trophy-card {
+  min-width: min(100%, 340px);
+  display: grid;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid rgba(255, 213, 92, .28);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255,213,92,.20), transparent 46%),
+    rgba(255,255,255,.06);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+.club-trophy-card span,
+.club-trophy-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.club-trophy-card strong {
+  display: block;
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  letter-spacing: -.05em;
+  line-height: 1;
+}
+
+.club-metrics {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.club-grid {
+  align-items: stretch;
+}
+
+.club-current-card,
+.club-palmares-card,
+.club-panel,
+.club-season-card {
+  min-height: 100%;
+}
+
+.club-hall-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.club-hall-grid h4 {
+  margin-top: 0;
+}
+
+.club-hall-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.045);
+}
+
+.club-hall-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 850;
+}
+
+.club-hall-row strong {
+  font-size: 1.15rem;
+}
+
+.club-hall-row small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.club-season-card .table-wrap,
+.club-panel .table-wrap,
+.club-palmares-card .table-wrap {
+  margin-top: 10px;
+}
+
+@media (max-width: 960px) {
+  .club-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .club-metrics,
+  .club-hall-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .club-trophy-card {
+    min-width: 0;
+  }
+}

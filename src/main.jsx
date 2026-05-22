@@ -5,7 +5,7 @@ import "./styles.css";
 
 const STORAGE_KEY = "chute_plataforma_mvp_v5";
 const THEME_KEY = "chute_plataforma_theme";
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.12.0";
 const DATA_VERSION = 8;
 
 
@@ -729,6 +729,101 @@ function buildSeasonDashboard(state, seasonName){
     topPlayer: playerRanking[0] || null,
     recentResults,
     champions
+  };
+}
+
+
+function buildClubChuteDashboard(state){
+  const archive = buildTournamentArchiveRows(state);
+  const userRanking = buildUserRanking(state);
+  const teamRanking = buildTeamRanking(state);
+  const playerRanking = buildPlayerContributionRanking(state);
+  const officialMatches = (state.tournaments || []).flatMap((tournament) => (tournament.matches || []).filter(matchPlayed).map((match) => ({ tournament, match })));
+  const totalGoals = officialMatches.reduce((sum, { match }) => sum + Number(match.homeGoals || 0) + Number(match.awayGoals || 0), 0);
+  const activeTournaments = (state.tournaments || []).filter((tournament) => tournament.status !== "closed");
+  const seasonRows = getSeasonOptions(state)
+    .map((season) => {
+      const summary = buildSeasonDashboard(state, season);
+      const championText = summary.champions.length
+        ? summary.champions.slice(0, 2).map((row) => `${row.user} · ${row.team}`).join(" / ")
+        : "Sin campeón";
+      return {
+        key: season,
+        season,
+        period: summary.period,
+        tournaments: summary.tournaments.length,
+        active: summary.active.length,
+        closed: summary.closed.length,
+        matches: `${summary.playedMatches.length}/${summary.officialMatches.length}`,
+        goals: summary.totalGoals,
+        leader: summary.leader?.name || "Sin datos",
+        champion: championText,
+        current: season === (state.currentSeason || CURRENT_SEASON)
+      };
+    })
+    .filter((row) => row.current || row.tournaments > 0 || row.closed > 0);
+
+  const titleRows = archive.map(({ tournament, profile }) => ({
+    key: tournament.id,
+    tournamentId: tournament.id,
+    tournament: tournament.name,
+    season: tournament.season || state.currentSeason || CURRENT_SEASON,
+    champion: profile.championUser?.alias || profile.history.champion,
+    team: profile.championTeam?.short || profile.history.championTeam,
+    topScorer: profile.goalRows[0]?.playerName || profile.history.topScorer,
+    goals: profile.totalGoals,
+    played: profile.playedMatches.length || profile.history.playedMatches || 0
+  }));
+
+  const bestCampaigns = archive
+    .map(({ tournament, profile }) => {
+      const championStanding = profile.standings.find((row) => row.userId === tournament.championUserId) || profile.standings[0];
+      if (!championStanding) return null;
+      return {
+        key: tournament.id,
+        tournamentId: tournament.id,
+        user: getUser(state, championStanding.userId).alias,
+        team: getTeam(state, championStanding.teamId).short || getTeam(state, championStanding.teamId).name,
+        tournament: tournament.name,
+        season: tournament.season || state.currentSeason || CURRENT_SEASON,
+        pj: championStanding.pj,
+        pg: championStanding.pg,
+        dg: championStanding.dg,
+        performance: championStanding.performance
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.performance - a.performance || b.dg - a.dg || b.pg - a.pg)
+    .slice(0, 6);
+
+  const hallUsers = [...userRanking].sort((a, b) => b.titles - a.titles || b.score - a.score).slice(0, 6);
+  const hallTeams = [...teamRanking].sort((a, b) => b.titles - a.titles || b.score - a.score).slice(0, 6);
+  const rivalries = buildRivalryRows(state).slice(0, 5);
+  const friendlyStats = buildFriendlyStats(state).slice(0, 5);
+  const latestChampion = archive[0] || null;
+
+  return {
+    archive,
+    userRanking,
+    teamRanking,
+    playerRanking,
+    seasonRows,
+    titleRows,
+    bestCampaigns,
+    hallUsers,
+    hallTeams,
+    rivalries,
+    friendlyStats,
+    latestChampion,
+    totals: {
+      seasons: seasonRows.length,
+      tournaments: (state.tournaments || []).length,
+      active: activeTournaments.length,
+      closed: archive.length,
+      matches: officialMatches.length,
+      goals: totalGoals,
+      friendlies: (state.friendlyMatches || []).length
+    }
   };
 }
 
@@ -3611,6 +3706,7 @@ function App(){
           <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
           <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
           <NavButton id="mundo" label="Mundo Chute" view={view} setView={setView} />
+          <NavButton id="club" label="Club Chute" view={view} setView={setView} />
           <NavButton id="temporadas" label="Temporadas" view={view} setView={setView} />
           <NavButton id="amistosos" label="Amistosos" view={view} setView={setView} />
           <NavButton id="amigos" label="Amigos" view={view} setView={setView} />
@@ -3648,6 +3744,7 @@ function App(){
         {view === "inicio" && <Home state={state} currentUser={currentUser} rankingUsers={globalRankingUsers} setView={setView} selectedTournament={selectedTournament} openTournament={openTournament} visibleTournaments={visibleTournaments} />}
         {view === "torneos" && <Tournaments state={state} commit={commit} currentUser={currentUser} selectedTournament={selectedTournament} setSelectedTournamentId={setSelectedTournamentId} visibleTournaments={visibleTournaments} cloudMode={cloudModeActive} cloudLoading={cloudTournamentsLoading} cloudNotice={cloudTournamentsNotice} onCloudCreateTournament={createCloudTournament} onCloudRefreshTournaments={refreshCloudTournaments} onCloudGenerateFixture={generateCloudFixture} onCloudSubmitResult={submitCloudMatchResult} onCloudClearResult={clearCloudMatchResult} onCloudConfirmResult={confirmCloudMatchResult} onCloudRejectResult={rejectCloudMatchResult} onCloudAddGoal={addCloudGoalEvent} onCloudRemoveGoal={removeCloudGoalEvent} onCloudUpdateTournamentStatus={updateCloudTournamentStatus} onCloudDeleteTournament={deleteCloudTournament} />}
         {view === "mundo" && <MundoChute state={state} openTournament={openTournament} setView={setView} />}
+        {view === "club" && <ClubChute state={state} openTournament={openTournament} setView={setView} setSeasonFilter={setSeasonFilter} />}
         {view === "temporadas" && <Seasons state={state} setView={setView} openTournament={openTournament} setSeasonFilter={setSeasonFilter} />}
         {view === "amistosos" && <FriendlyMatches state={state} commit={commit} currentUser={currentUser} />}
         {view === "amigos" && <Friends state={state} commit={commit} currentUser={currentUser} friendIds={friendIds} cloudAvailable={Boolean(supabaseClient)} cloudSession={cloudSession} cloudLoading={cloudFriendsLoading || cloudTournamentsLoading} cloudNotice={cloudFriendsNotice || cloudTournamentsNotice} onCloudSearch={searchCloudProfiles} onCloudRequest={requestCloudFriend} onCloudAnswer={answerCloudFriend} onCloudRemove={removeCloudFriend} onCloudRefresh={refreshCloudFriends} onCloudAnswerTournamentInvitation={answerCloudTournamentInvitation} />}
@@ -3661,6 +3758,7 @@ function App(){
         <NavButton id="inicio" label="Inicio" view={view} setView={setView} />
         <NavButton id="torneos" label="Torneos" view={view} setView={setView} />
         <NavButton id="mundo" label="Mundo" view={view} setView={setView} />
+        <NavButton id="club" label="Club" view={view} setView={setView} />
         <NavButton id="temporadas" label="Temp." view={view} setView={setView} />
         <NavButton id="amistosos" label="Amist." view={view} setView={setView} />
         <NavButton id="ranking" label="Ranking" view={view} setView={setView} />
@@ -3675,6 +3773,7 @@ function pageTitle(view){
     inicio: "Panel principal",
     torneos: "Sala de torneos",
     mundo: "Mundo Chute",
+    club: "Club Chute",
     temporadas: "Temporadas",
     amistosos: "Partidos amistosos",
     amigos: "Amigos e invitaciones",
@@ -6089,6 +6188,160 @@ function TournamentInvitationCenter({ state, commit, currentUser, cloudMode = fa
 
 
 
+
+function ClubChute({ state, openTournament, setView, setSeasonFilter }){
+  const club = buildClubChuteDashboard(state);
+  const currentSeasonRow = club.seasonRows.find((row) => row.current) || club.seasonRows[0] || null;
+  const latest = club.latestChampion;
+  const topUser = club.userRanking[0];
+  const topTeam = club.teamRanking[0];
+  const topPlayer = club.playerRanking[0];
+
+  function openSeasonRanking(season){
+    if (season && setSeasonFilter) setSeasonFilter(season);
+    setView("ranking");
+  }
+
+  function copyClubSummary(){
+    const lines = [
+      "Club Chute · Palmarés histórico",
+      `Temporada vigente: ${state.currentSeason || CURRENT_SEASON}`,
+      `Torneos finalizados: ${club.totals.closed}`,
+      `Partidos oficiales: ${club.totals.matches}`,
+      `Goles oficiales: ${club.totals.goals}`,
+      `Líder histórico: ${topUser?.name || "Sin datos"}`,
+      `Equipo histórico: ${topTeam?.name || "Sin datos"}`,
+      `Figura histórica: ${topPlayer ? `${topPlayer.playerName} (${topPlayer.contributions} G+A)` : "Sin datos"}`
+    ];
+    if (club.titleRows.length) {
+      lines.push("", "Últimos campeones:");
+      club.titleRows.slice(0, 5).forEach((row) => lines.push(`- ${row.season}: ${row.champion} con ${row.team} · ${row.tournament}`));
+    }
+    const text = lines.join("\n");
+    try {
+      navigator.clipboard?.writeText(text);
+      alert("Resumen de Club Chute copiado.");
+    } catch {
+      alert(text);
+    }
+  }
+
+  return (
+    <section className="stack club-page">
+      <article className="hero-panel club-hero product-hero">
+        <div>
+          <p className="eyebrow">Historia oficial de la comunidad</p>
+          <h2>Club Chute</h2>
+          <p>Palmarés, temporadas, campeones, récords y figuras históricas en una sola pantalla. Esta sección funciona como museo competitivo de la plataforma.</p>
+          <div className="actions-row">
+            <button className="primary" onClick={() => setView("temporadas")}>Ver temporadas</button>
+            <button className="secondary" onClick={() => openSeasonRanking(state.currentSeason || CURRENT_SEASON)}>Ranking vigente</button>
+            <button className="ghost" onClick={copyClubSummary}>Copiar resumen</button>
+          </div>
+        </div>
+        <div className="club-trophy-card">
+          <span>Último campeón</span>
+          <strong>{latest?.profile?.championUser?.alias || latest?.profile?.history?.champion || "Sin campeón"}</strong>
+          <small>{latest ? `${latest.tournament.name} · ${latest.profile.championTeam?.short || latest.profile.history.championTeam}` : "Finaliza un torneo para abrir el palmarés."}</small>
+          {latest && <button className="secondary small" onClick={() => openTournament(latest.tournament.id)}>Abrir ficha</button>}
+        </div>
+      </article>
+
+      <div className="metric-grid product-metrics club-metrics">
+        <Metric title="Temporadas" value={club.totals.seasons} />
+        <Metric title="Torneos" value={club.totals.tournaments} />
+        <Metric title="Finalizados" value={club.totals.closed} />
+        <Metric title="Partidos oficiales" value={club.totals.matches} />
+        <Metric title="Goles oficiales" value={club.totals.goals} />
+        <Metric title="Amistosos" value={club.totals.friendlies} />
+      </div>
+
+      <div className="grid-2 club-grid">
+        <article className="card club-current-card">
+          <div className="section-head compact">
+            <div><p className="eyebrow">Ciclo vigente</p><h3>{currentSeasonRow?.season || state.currentSeason || CURRENT_SEASON}</h3></div>
+            <button className="ghost small" onClick={() => setView("temporadas")}>Detalle</button>
+          </div>
+          <div className="season-summary-grid">
+            <span><small>Periodo</small><strong>{currentSeasonRow?.period || getSeasonPeriodText(state.currentSeason)}</strong><em>Actualización automática</em></span>
+            <span><small>Torneos</small><strong>{currentSeasonRow?.tournaments || 0}</strong><em>{currentSeasonRow?.active || 0} activos · {currentSeasonRow?.closed || 0} cerrados</em></span>
+            <span><small>Partidos</small><strong>{currentSeasonRow?.matches || "0/0"}</strong><em>{currentSeasonRow?.goals || 0} goles</em></span>
+            <span><small>Líder</small><strong>{currentSeasonRow?.leader || "Sin datos"}</strong><em>{currentSeasonRow?.champion || "Sin campeón"}</em></span>
+          </div>
+        </article>
+
+        <article className="card club-current-card">
+          <div className="section-head compact"><div><p className="eyebrow">Hall de la fama</p><h3>Dominadores históricos</h3></div></div>
+          <div className="club-hall-grid">
+            <div>
+              <h4>Usuarios</h4>
+              {club.hallUsers.slice(0, 4).map((row) => <div className="club-hall-row" key={row.userId}><span>{row.name}</span><strong>{row.titles}</strong><small>títulos</small></div>)}
+              {!club.hallUsers.length && <p className="empty">Sin historial todavía.</p>}
+            </div>
+            <div>
+              <h4>Equipos</h4>
+              {club.hallTeams.slice(0, 4).map((row) => <div className="club-hall-row" key={row.teamId}><span>{row.name}</span><strong>{row.titles}</strong><small>títulos</small></div>)}
+              {!club.hallTeams.length && <p className="empty">Sin historial todavía.</p>}
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <article className="card club-season-card">
+        <div className="section-head compact">
+          <div><p className="eyebrow">Calendario histórico</p><h3>Temporadas semestrales</h3></div>
+          <button className="ghost small" onClick={() => setView("temporadas")}>Abrir temporadas</button>
+        </div>
+        <SimpleTable rows={club.seasonRows.slice(0, 8)} columns={["season", "period", "tournaments", "matches", "goals", "leader", "champion"]} labels={{ season: "Temporada", period: "Periodo", tournaments: "Torneos", matches: "PJ", goals: "Goles", leader: "Líder", champion: "Campeón" }} compact />
+        {!club.seasonRows.length && <p className="empty">No hay temporadas con actividad registrada.</p>}
+      </article>
+
+      <div className="grid-2 club-grid">
+        <article className="card club-palmares-card">
+          <div className="section-head compact"><div><p className="eyebrow">Palmarés</p><h3>Últimos campeones</h3></div></div>
+          <div className="list spaced">
+            {club.titleRows.slice(0, 8).map((row) => (
+              <button className="list-row clickable" key={row.key} type="button" onClick={() => openTournament(row.tournamentId)}>
+                <span><strong>{row.champion}</strong><small>{row.tournament} · {row.season}</small></span>
+                <b>{row.team}</b>
+              </button>
+            ))}
+            {!club.titleRows.length && <p className="empty">Finaliza torneos para construir el palmarés.</p>}
+          </div>
+        </article>
+
+        <article className="card club-palmares-card">
+          <div className="section-head compact"><div><p className="eyebrow">Campañas</p><h3>Mejores campeones</h3></div></div>
+          <SimpleTable rows={club.bestCampaigns} columns={["user", "team", "tournament", "performance", "dg"]} labels={{ user: "Usuario", team: "Equipo", tournament: "Torneo", performance: "%", dg: "DG" }} compact />
+        </article>
+      </div>
+
+      <div className="grid-2 club-grid">
+        <article className="card club-panel">
+          <div className="section-head compact"><div><p className="eyebrow">Figuras</p><h3>Futbolistas históricos</h3></div><button className="ghost small" onClick={() => setView("ranking")}>Goles/Asist.</button></div>
+          <SimpleTable rows={club.playerRanking.slice(0, 8)} columns={["pos", "playerName", "teamName", "goals", "assists", "contributions"]} labels={{ pos: "#", playerName: "Jugador", teamName: "Equipo", goals: "G", assists: "A", contributions: "G+A" }} compact />
+        </article>
+
+        <article className="card club-panel">
+          <div className="section-head compact"><div><p className="eyebrow">Clásicos</p><h3>Rivalidades destacadas</h3></div><button className="ghost small" onClick={() => setView("ranking")}>Rivalidades</button></div>
+          <div className="list spaced">
+            {club.rivalries.map((row) => <div className="list-row" key={row.key}><span><strong>{row.userA} vs {row.userB}</strong><small>{row.pj} partidos · {row.goalsA + row.goalsB} goles</small></span><b>{row.aWins}-{row.draws}-{row.bWins}</b></div>)}
+            {!club.rivalries.length && <p className="empty">Aún no hay rivalidades oficiales suficientes.</p>}
+          </div>
+        </article>
+      </div>
+
+      <div className="grid-2 club-grid">
+        <RecordsPanel state={state} />
+        <article className="card club-panel">
+          <div className="section-head compact"><div><p className="eyebrow">Paralelo no oficial</p><h3>Rey de los amistosos</h3></div><button className="ghost small" onClick={() => setView("amistosos")}>Amistosos</button></div>
+          <SimpleTable rows={club.friendlyStats} columns={["pos", "name", "pj", "pg", "pe", "pp", "performance"]} labels={{ pos: "#", name: "Usuario", pj: "PJ", pg: "PG", pe: "PE", pp: "PP", performance: "%" }} compact />
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function Seasons({ state, setView, openTournament, setSeasonFilter }){
   const seasonOptions = getSeasonOptions(state);
   const [selectedSeason, setSelectedSeason] = useState(state.currentSeason || CURRENT_SEASON);
@@ -6354,7 +6607,7 @@ function MundoChute({ state, openTournament, setView }){
           <p className="eyebrow">Portada competitiva</p>
           <h2>Mundo Chute</h2>
           <p>Una vista general de la actividad competitiva: campeones, rankings, clubes, futbolistas y torneos activos.</p>
-          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="secondary" onClick={() => setView("temporadas")}>Ver temporadas</button><button className="secondary" onClick={() => setView("amistosos")}>Registrar amistoso</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
+          <div className="actions-row"><button className="primary" onClick={() => setView("torneos")}>Crear o abrir torneo</button><button className="secondary" onClick={() => setView("club")}>Club Chute</button><button className="secondary" onClick={() => setView("temporadas")}>Ver temporadas</button><button className="secondary" onClick={() => setView("amistosos")}>Registrar amistoso</button><button className="ghost" onClick={() => setView("ranking")}>Ver ranking completo</button></div>
         </div>
         <div className="product-hero-board">
           <div className="scoreboard-main">
